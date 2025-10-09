@@ -21,6 +21,9 @@ The RTL directory houses the complete hardware description of the processor, inc
 ## Key Modules (typical structure)
 
 - **hart.v** - top-level interface for the CPU
+- **alu.v** - arithmetic logic unit
+- **imm.v** - immediate generator
+- **rf.v** - register file
 
 ## Implementation Notes
 
