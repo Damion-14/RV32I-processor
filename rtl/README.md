@@ -17,17 +17,10 @@ The RTL directory houses the complete hardware description of the processor, inc
 - **Single-cycle design**: Each instruction completes in exactly one clock cycle
 - **RV32I ISA support**: Must implement all required RISC-V 32-bit integer instructions
 - **Flat structure**: All Verilog files must be in this directory (no subdirectories)
-- **Halt support**: Must implement the `ebreak` instruction for simulation termination
 
 ## Key Modules (typical structure)
 
-- **processor.v** - Top-level processor module
-- **control.v** - Control unit for instruction decode
-- **datapath.v** - Main datapath with ALU, register file, and data flow
-- **alu.v** - Arithmetic Logic Unit
-- **regfile.v** - 32-register register file
-- **imem.v** - Instruction memory interface
-- **dmem.v** - Data memory interface
+- **hart.v** - top-level interface for the CPU
 
 ## Implementation Notes
 
