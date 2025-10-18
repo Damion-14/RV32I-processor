@@ -17,7 +17,7 @@ module ctl (
     output wire [ 1:0 ] U_sel,
     output wire [ 5:0 ] i_format,
     output wire [ 2:0 ] bj_type,
-    output wire [ 3:0 ] alu_op,
+    output wire [ 1:0 ] alu_op,
     output wire mem_read,
     output wire mem_to_reg,
     output wire mem_write,
@@ -64,53 +64,22 @@ module ctl (
                         3'b010;                           // None
 
 
-// ALU operation encoding (4 bits):
-//ADD: Addition (ALU Op = 4’b0000)
-//•SUB: Subtraction (ALU Op = 4’b0001)
-//•AND: Bitwise AND (ALU Op = 4’b0010)
-//•OR: Bitwise OR (ALU Op = 4’b0011)
-//•XOR: Bitwise XOR (ALU Op = 4’b0100)
-//•SLL: Shift left logical (ALU Op = 4’b0101)
-//•SRL: Shift right logical (ALU Op = 4’b0110)
-//•SRA: Shift right arithmetic (ALU Op = 4’b0111)
-//•SLT: Set less than (signed) (ALU Op = 4’b1000)
-//•SLTU: Set less than (unsigned) (ALU Op = 4’b1001)
-//•PASS_B: Pass 2nd operand (LUI) (ALU Op = 4’b1010)
-//•SUB/CMP: Sub for comp (set flags) (ALU Op = 4’b1011)
-    assign alu_op     = (opcode == 7'b0110011) ? // R-type
-                        (instruction[30] == 1'b0) ? // Check funct7[5]
-                            (instruction[14:12] == 3'b000) ? 4'b0000 : // ADD
-                            (instruction[14:12] == 3'b111) ? 4'b0010 : // AND
-                            (instruction[14:12] == 3'b110) ? 4'b0011 : // OR
-                            (instruction[14:12] == 3'b100) ? 4'b0100 : // XOR
-                            (instruction[14:12] == 3'b001) ? 4'b0101 : // SLL
-                            (instruction[14:12] == 3'b101) ? 4'b0110 : // SRL
-                            (instruction[14:12] == 3'b010) ? 4'b1000 : // SLT
-                            (instruction[14:12] == 3'b011) ? 4'b1001 : // SLTU
-                            4'b1111 // Invalid
-                        :
-                            (instruction[14:12] == 3'b000) ? 4'b0001 : // SUB
-                            (instruction[14:12] == 3'b101) ? 4'b0111 : // SRA
-                            4'b1111 // Invalid
-                        :
-                        (opcode == 7'b0010011) ? // I-type ALU
-                            (instruction[14:12] == 3'b000) ? 4'b0000 : // ADDI
-                            (instruction[14:12] == 3'b111) ? 4'b0010 : // ANDI
-                            (instruction[14:12] == 3'b110) ? 4'b0011 : // ORI
-                            (instruction[14:12] == 3'b100) ? 4'b0100 : // XORI
-                            (instruction[14:12] == 3'b001) ? 4'b0101 : // SLLI
-                            (instruction[14:12] == 3'b101) ?
-                            (instruction[30] == 1'b0) ? 4'b0110 : // SRLI
-                            4'b0111 : // SRA
-                            (instruction[14:12] == 3'b010) ? 4'b1000 : // SLTI
-                            (instruction[14:12] == 3'b011) ? 4'b1001 : // SLTIU
-                            4'b1111 : // Invalid
-                            (opcode == 7'b0000011) ? 4'b0000 : // Load (LW, LH, LB, etc.) - ADD
-                            (opcode == 7'b0100011) ? 4'b0000 : // Store (SW, SH, SB) - ADD
-                            (opcode == 7'b0010111) ? 4'b1010 : // AUIPC - PASS_B
-                            (opcode == 7'b1101111) ? 4'b0000 : // JAL - ADD
-                            (opcode == 7'b1100111) ? 4'b0000 : // JALR - ADD
-                            4'b1111;                          // Invalid
+
+// I Assigned 00 to be R-type instructions or instructions that use add in the ALU
+//            01 to be I-type instructions
+//            10 to be Pass_B which is U-type
+//            11 is invalid
+// The ALU control will use the 2 bits from here, Func 3 and Func 7 from the instruction
+// to determine what to tell the ALU to do                        
+
+    assign alu_op     = (opcode == 7'b0110011) ? 2'b00 : // R-type 
+                        (opcode == 7'b0010011) ? 2'b01 :// I-type ALU
+                        (opcode == 7'b0000011) ? 2'b00 : // Load (LW, LH, LB, etc.) - ADD
+                        (opcode == 7'b0100011) ? 2'b00 : // Store (SW, SH, SB) - ADD
+                        (opcode == 7'b0010111) ? 4'b10 : // AUIPC - PASS_B
+                        (opcode == 7'b1101111) ? 4'b00 : // JAL - ADD
+                        (opcode == 7'b1100111) ? 4'b00 : // JALR - ADD
+                            2'b11;                          // Invalid
      
 
     assign mem_read   = (opcode == 7'b0000011) ? 1'b1 : 1'b0; // Load
