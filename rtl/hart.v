@@ -131,6 +131,202 @@ module hart #(
 `endif
 );
     // Fill in your implementation here.
+	
+
+    // PROGRAM COUNTER
+    reg [31:0] pc;
+    wire [31:0] pc_plus_4;
+    wire [31:0] next_pc;
+ 
+    assign pc_plus_4 = pc + 32'd4;
+    assign o_imem_raddr = pc;
+
+
+    // INSTRUCTION FETCH
+    wire [31:0] inst;
+    assign inst = i_imem_rdata;
+    
+ 
+    // INSTRUCTION DECODE
+    wire [6:0] opcode;
+    wire [4:0] rd, rs1, rs2;
+    wire [2:0] funct3;
+    wire [6:0] funct7;
+    
+    assign opcode = inst[6:0];
+    assign rd     = inst[11:7];
+    assign funct3 = inst[14:12];
+    assign rs1    = inst[19:15];
+    assign rs2    = inst[24:20];
+    assign funct7 = inst[31:25];
+
+  
+    // CONTROL UNIT
+    wire [1:0] U_sel;
+    wire [5:0] i_format; 
+    wire [2:0] bj_type;     
+    wire [1:0] alu_op;    
+    wire mem_read;         
+    wire mem_to_reg;       
+    wire mem_write;        
+    wire alu_src;           
+    wire reg_write;        
+    
+    ctl control_unit (
+        .instruction(inst),
+        .U_sel(U_sel),
+        .i_format(i_format),
+        .bj_type(bj_type),
+        .alu_op(alu_op),
+        .mem_read(mem_read),
+        .mem_to_reg(mem_to_reg),
+        .mem_write(mem_write),
+        .alu_src(alu_src),
+        .reg_write(reg_write)
+    );
+
+
+    // REGISTER FILE  
+    wire [31:0] rs1_data, rs2_data;  
+    wire [31:0] rd_data;              
+    
+    rf #(.BYPASS_EN(0)) register_file (
+        .i_clk(i_clk),
+        .i_rst(i_rst),
+        .i_rs1_raddr(rs1),              
+        .i_rs2_raddr(rs2),              
+        .i_rd_waddr(rd),                
+        .i_rd_wdata(rd_data),          
+        .i_rd_wen(reg_write),           
+        .o_rs1_rdata(rs1_data),         
+        .o_rs2_rdata(rs2_data)          
+    );
+
+
+    // IMMEDIATE GENERATOR
+    wire [31:0] imm;  
+    
+    imm imm_gen (
+        .i_inst(inst),
+        .i_format(i_format), 
+        .o_immediate(imm)
+    );
+
+ 
+    // ALU CONTROL
+    wire [2:0] i_opsel;     
+    wire i_sub;            
+    wire i_unsigned;        
+    wire i_arith;           
+    wire [3:0] func37;
+    
+    assign func37 = {funct7[5], funct3};
+    
+    alu_ctl alu_control_unit (
+        .alu_op(alu_op),       
+        .func37(func37),       
+        .i_opsel(i_opsel),     
+        .i_sub(i_sub),          
+        .i_unsigned(i_unsigned),
+        .i_arith(i_arith)      
+    );
+
+   
+    // ALU
+	wire [31:0] alu_op1, alu_op2;
+    
+    assign alu_op1 = rs1_data;  
+    assign alu_op2 = alu_src ? imm : rs2_data;     
+    
+    wire [31:0] alu_result;  
+    wire alu_eq;             
+    wire alu_slt;           
+    
+    alu alu_unit (
+        .i_opsel(i_opsel),
+        .i_sub(i_sub),
+        .i_unsigned(i_unsigned),
+        .i_arith(i_arith),
+        .i_op1(alu_op1),        
+        .i_op2(alu_op2),        
+        .o_result(alu_result),  
+        .o_eq(alu_eq),         
+        .o_slt(alu_slt)         
+    );
+
+
+    // BRANCH/JUMP LOGIC
+    wire is_branch;
+    wire is_jal;
+    wire is_jalr;
+    wire branch_taken;
+    
+    assign is_branch = (opcode == 7'b1100011);
+    assign is_jal = (opcode == 7'b1101111);
+    assign is_jalr = (opcode == 7'b1100111);
+    
+    // Branch condition based on bj_type
+    reg branch_condition;
+    always @(*) begin
+        case (bj_type)
+            3'b000: branch_condition = alu_eq;         
+            3'b001: branch_condition = ~alu_eq;         
+            3'b100: branch_condition = alu_slt;          
+            3'b101: branch_condition = ~alu_slt;         
+            3'b110: branch_condition = alu_slt;         
+            3'b111: branch_condition = ~alu_slt;         
+            default: branch_condition = 1'b0;
+        endcase
+    end
+    
+    assign branch_taken = is_branch & branch_condition;
+
+
+    // PC Control
+    wire [31:0] branch_target;
+    wire [31:0] jalr_target;
+    
+    assign branch_target = pc + imm;
+    assign jalr_target = (rs1_data + imm) & ~32'd1;
+    
+    assign next_pc = is_jalr ? jalr_target :
+                     (is_jal | branch_taken) ? branch_target :
+                     pc_plus_4;
+    
+    // PC Update
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            pc <= RESET_ADDR;
+        end else begin
+            pc <= next_pc;
+        end
+    end
+	
+
+    // DATA MEMORY INTERFACE
+	//TODO
+	
+	
+    // WRITE BACK
+	//TODO
+
+
+
+
+
+    // RETIRE INTERFACE   
+    assign o_retire_valid = 1'b1;  // Always valid in single-cycle processor
+    assign o_retire_inst = inst;
+    assign o_retire_trap = illegal_inst | unaligned_pc | unaligned_mem;
+    assign o_retire_halt = (opcode == 7'b1110011) && (funct3 == 3'b000) && (inst[31:20] == 12'h001); // EBREAK detection
+    assign o_retire_rs1_raddr = rs1;
+    assign o_retire_rs2_raddr = rs2;
+    assign o_retire_rs1_rdata = rs1_data;
+    assign o_retire_rs2_rdata = rs2_data;
+    assign o_retire_rd_waddr = rd;
+    assign o_retire_rd_wdata = rd_data;
+    assign o_retire_pc = pc;
+    assign o_retire_next_pc = next_pc;
 endmodule
 
 `default_nettype wire
