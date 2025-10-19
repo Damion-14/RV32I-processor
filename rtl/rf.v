@@ -49,30 +49,34 @@ module rf #(
     input  wire [31:0] i_rd_wdata
 );
     // Fill in your implementation here.
-    reg [31:0] registers [31:0];
-    integer i;
+    reg [31:0] mem [31:0];
 
     always @(posedge i_clk) begin
         if (i_rst) begin
             // set registers to 0
-            for (i = 0; i < 32; i = i + 1) begin
-                registers[i] <= 32'd0;
-            end
+            mem[0] <= 32'd0; mem[1] <= 32'd0; mem[2] <= 32'd0; mem[3] <= 32'd0;
+            mem[4] <= 32'd0; mem[5] <= 32'd0; mem[6] <= 32'd0; mem[7] <= 32'd0;
+            mem[8] <= 32'd0; mem[9] <= 32'd0; mem[10] <= 32'd0; mem[11] <= 32'd0;
+            mem[12] <= 32'd0; mem[13] <= 32'd0; mem[14] <= 32'd0; mem[15] <= 32'd0;
+            mem[16] <= 32'd0; mem[17] <= 32'd0; mem[18] <= 32'd0; mem[19] <= 32'd0;
+            mem[20] <= 32'd0; mem[21] <= 32'd0; mem[22] <= 32'd0; mem[23] <= 32'd0;
+            mem[24] <= 32'd0; mem[25] <= 32'd0; mem[26] <= 32'd0; mem[27] <= 32'd0;
+            mem[28] <= 32'd0; mem[29] <= 32'd0; mem[30] <= 32'd0; mem[31] <= 32'd0;
         end else begin
             // normal register function
             if (i_rd_wen && i_rd_waddr != 5'd0) begin
-                registers[i_rd_waddr] <= i_rd_wdata;
-            end 
+                mem[i_rd_waddr] <= i_rd_wdata;
+            end
         end
     end
 
     assign o_rs1_rdata = (i_rs1_raddr == 5'd0) ? 32'd0 :
                          (BYPASS_EN && i_rd_wen && (i_rd_waddr == i_rs1_raddr) && (i_rd_waddr != 5'd0)) ? i_rd_wdata :
-                         registers[i_rs1_raddr];
-    
+                         mem[i_rs1_raddr];
+
     assign o_rs2_rdata = (i_rs2_raddr == 5'd0) ? 32'd0 :
                          (BYPASS_EN && i_rd_wen && (i_rd_waddr == i_rs2_raddr) && (i_rd_waddr != 5'd0)) ? i_rd_wdata :
-                         registers[i_rs2_raddr];
+                         mem[i_rs2_raddr];
 
 endmodule
 

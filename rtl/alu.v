@@ -57,7 +57,8 @@ module alu (
     
     assign sll_result = i_op1 << i_op2[4:0];
     
-    wire signed_lt = (i_op1[31] != i_op2[31]) ?  i_op1[31] : (i_op1 < i_op2);
+    wire signed_lt = (i_op1[31] != i_op2[31]) ?  i_op1[31] :
+                     ($signed(i_op1) < $signed(i_op2));
 
     wire unsigned_lt = i_op1 < i_op2;
     wire slt_bit = i_unsigned ? unsigned_lt : signed_lt;
