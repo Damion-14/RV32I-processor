@@ -7,7 +7,7 @@ Report : power
         -analysis_effort low
 Design : hart
 Version: X-2025.06
-Date   : Mon Oct 20 18:26:09 2025
+Date   : Mon Oct 20 21:35:33 2025
 ****************************************
 
 
@@ -38,12 +38,12 @@ Attributes
 i - Including register clock pin internal power
 
 
-  Cell Internal Power  = 662.2981 uW   (98%)
-  Net Switching Power  =  12.4283 uW    (2%)
+  Cell Internal Power  = 662.3655 uW   (98%)
+  Net Switching Power  =  12.5446 uW    (2%)
                          ---------
-Total Dynamic Power    = 674.7264 uW  (100%)
+Total Dynamic Power    = 674.9102 uW  (100%)
 
-Cell Leakage Power     = 468.3792 uW
+Cell Leakage Power     = 468.2208 uW
 
 
                  Internal         Switching           Leakage            Total
@@ -52,10 +52,10 @@ Power Group      Power            Power               Power              Power  
 io_pad             0.0000            0.0000            0.0000            0.0000  (   0.00%)
 memory             0.0000            0.0000            0.0000            0.0000  (   0.00%)
 black_box          0.0000            0.0000            0.0000            0.0000  (   0.00%)
-clock_network    651.2954            0.0000            0.0000          651.2954  (  56.98%)  i
-register           0.9615            0.3364        2.5546e+08          256.7604  (  22.46%)
+clock_network    651.2954            0.0000            0.0000          651.2954  (  56.97%)  i
+register           0.9988            0.3496        2.5550e+08          256.8514  (  22.47%)
 sequential         0.0000            0.0000            0.0000            0.0000  (   0.00%)
-combinational     10.0413           12.0918        2.1292e+08          235.0494  (  20.56%)
+combinational     10.0719           12.1951        2.1272e+08          234.9839  (  20.56%)
 --------------------------------------------------------------------------------------------------
-Total            662.2982 uW        12.4283 uW     4.6838e+08 pW     1.1431e+03 uW
+Total            662.3661 uW        12.5446 uW     4.6822e+08 pW     1.1431e+03 uW
 1
