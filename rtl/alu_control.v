@@ -114,7 +114,12 @@ module alu_ctl (
             4'b1111 // Invalid combination
         ) :
         //---------------------------------------------------------------------
-        // Class 3: Pass-through operations (alu_op = 2'b10)
+        // Class 3: Store operations
+        // Used by: SB, SH, SW (always ADD for address calculation)
+        //---------------------------------------------------------------------
+        (alu_op == 2'b11) ? 4'b0000 :
+        //---------------------------------------------------------------------
+        // Class 4: Pass-through operations (alu_op = 2'b10)
         // Used by: AUIPC, LUI (currently handled in hart.v, not used here)
         //---------------------------------------------------------------------
         (alu_op == 2'b10) ? 4'b1010 : // PASS_B (pass second operand through)

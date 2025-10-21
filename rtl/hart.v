@@ -251,7 +251,7 @@ module hart #(
     // Branch Condition Evaluation
     // Determines if branch should be taken based on branch type and ALU flags
     reg branch_condition;
-    always @(posedge i_clk) begin
+    always @(*) begin
         case (bj_type)
             3'b000: branch_condition = alu_eq;      // BEQ: branch if equal
             3'b001: branch_condition = ~alu_eq;     // BNE: branch if not equal
@@ -313,7 +313,7 @@ module hart #(
 
     // Shift store data to correct byte lanes based on byte offset
     reg [31:0] store_data_shifted;
-    always @(posedge i_clk) begin
+    always @(*) begin
         case (byte_offset)
             2'b00: store_data_shifted = rs2_data;           // No shift needed
             2'b01: store_data_shifted = rs2_data << 8;      // Shift left 8 bits
@@ -330,7 +330,7 @@ module hart #(
     // shifted to the LSBs, and sign/zero extended based on the instruction type.
 
     reg [31:0] load_data_processed;
-    always @(posedge i_clk) begin
+    always @(*) begin
         case (funct3)
             // LB: Load Byte (sign-extended)
             3'b000: begin
