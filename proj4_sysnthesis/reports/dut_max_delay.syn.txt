@@ -6,7 +6,7 @@ Report : timing
         -max_paths 1
 Design : hart
 Version: X-2025.06
-Date   : Tue Oct 21 15:51:53 2025
+Date   : Tue Oct 21 16:04:49 2025
 ****************************************
 
  # A fanout number of 1000 was used for high fanout net computations.
@@ -31,21 +31,21 @@ Wire Load Model Mode: enclosed
   clock network delay (ideal)                             0.00       0.00
   input external delay                                    0.25       0.25 f
   i_imem_rdata[23] (in)                                   0.00       0.25 f
-  U4391/Y (INVX1_RVT)                                     0.04       0.29 r
-  U3733/Y (AND2X1_RVT)                                    0.07       0.36 r
-  U3721/Y (AND2X1_RVT)                                    0.07       0.43 r
-  U3720/Y (NAND2X0_RVT)                                   0.04       0.47 f
-  U4231/Y (NBUFFX2_RVT)                                   0.06       0.53 f
-  U4032/Y (NBUFFX2_RVT)                                   0.07       0.60 f
-  U3430/Y (OA22X1_RVT)                                    0.11       0.71 f
-  U3429/Y (OA221X1_RVT)                                   0.07       0.78 f
-  U3428/Y (NAND4X0_RVT)                                   0.06       0.85 r
-  U3427/Y (OR2X1_RVT)                                     0.08       0.93 r
-  U4230/Y (AOI22X1_RVT)                                   0.14       1.06 f
-  U4040/Y (INVX1_RVT)                                     0.11       1.17 r
-  U4039/Y (INVX1_RVT)                                     0.06       1.23 f
-  U4038/Y (INVX2_RVT)                                     0.11       1.34 r
-  U3424/Y (AO22X1_RVT)                                    0.11       1.45 r
+  U4407/Y (INVX1_RVT)                                     0.04       0.29 r
+  U3747/Y (AND2X1_RVT)                                    0.07       0.36 r
+  U3735/Y (AND2X1_RVT)                                    0.07       0.43 r
+  U3734/Y (NAND2X0_RVT)                                   0.04       0.47 f
+  U4249/Y (NBUFFX2_RVT)                                   0.06       0.53 f
+  U4051/Y (NBUFFX2_RVT)                                   0.07       0.60 f
+  U3449/Y (OA22X1_RVT)                                    0.11       0.71 f
+  U3448/Y (OA221X1_RVT)                                   0.07       0.78 f
+  U3447/Y (NAND4X0_RVT)                                   0.06       0.85 r
+  U3446/Y (OR2X1_RVT)                                     0.08       0.93 r
+  U4248/Y (AOI22X1_RVT)                                   0.14       1.06 f
+  U4061/Y (INVX1_RVT)                                     0.11       1.17 r
+  U4060/Y (INVX1_RVT)                                     0.06       1.23 f
+  U4059/Y (INVX2_RVT)                                     0.11       1.34 r
+  U3443/Y (AO22X1_RVT)                                    0.11       1.45 r
   alu_unit/add_56_2/U1_1/CO (FADDX1_RVT)                  0.13       1.58 r
   alu_unit/add_56_2/U1_2/CO (FADDX1_RVT)                  0.12       1.70 r
   alu_unit/add_56_2/U1_3/CO (FADDX1_RVT)                  0.12       1.82 r
@@ -77,9 +77,9 @@ Wire Load Model Mode: enclosed
   alu_unit/add_56_2/U1_29/CO (FADDX1_RVT)                 0.12       4.86 r
   alu_unit/add_56_2/U1_30/CO (FADDX1_RVT)                 0.12       4.98 r
   alu_unit/add_56_2/U1_31/S (FADDX1_RVT)                  0.16       5.14 f
-  U2197/Y (AO221X1_RVT)                                   0.11       5.25 f
-  U1757/Y (AOI222X1_RVT)                                  0.09       5.34 r
-  U1755/Y (NAND2X0_RVT)                                   0.04       5.38 f
+  U2218/Y (AO221X1_RVT)                                   0.11       5.25 f
+  U1777/Y (AOI222X1_RVT)                                  0.09       5.34 r
+  U1775/Y (NAND2X0_RVT)                                   0.04       5.38 f
   o_retire_rd_wdata[31] (out)                             0.00       5.38 f
   data arrival time                                                  5.38
 
