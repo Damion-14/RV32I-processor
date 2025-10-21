@@ -387,6 +387,7 @@ module hart #(
 
     wire is_lui = (opcode == 7'b0110111);              // Load Upper Immediate
     wire is_auipc = (opcode == 7'b0010111);            // Add Upper Immediate to PC
+    wire is_store = (opcode == 7'b0100011);            // Store instructions
 
     // Register Write Data Selection
     assign rd_data = mem_to_reg ? mem_read_data :       // Load instructions: memory data
@@ -444,7 +445,7 @@ module hart #(
     assign o_retire_rs2_raddr = rs2;                    // Source register 2 address
     assign o_retire_rs1_rdata = rs1_data;               // Source register 1 data
     assign o_retire_rs2_rdata = rs2_data;               // Source register 2 data
-    assign o_retire_rd_waddr = (is_branch) ? 4'b0000 : rd;                      // Destination register address
+    assign o_retire_rd_waddr = (is_branch || is_store) ? 5'b00000 : rd;         // Destination register address
     assign o_retire_rd_wdata = rd_data;                 // Destination register data
     assign o_retire_pc = pc;                            // Current PC
     assign o_retire_next_pc = next_pc;                  // Next PC
