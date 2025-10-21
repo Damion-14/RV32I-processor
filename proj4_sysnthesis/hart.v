@@ -305,15 +305,10 @@ module hart #(
     // and the appropriate mask must be generated based on access size.
 
     // Generate byte mask based on access size and byte offset
-    reg [3:0] dmem_mask;
-    always @(*) begin
-        case (funct3[1:0])
-            2'b00: dmem_mask = 4'b0001 << byte_offset;  // SB: single byte
-            2'b01: dmem_mask = 4'b0011 << byte_offset;  // SH: half-word (2 bytes)
-            2'b10: dmem_mask = 4'b1111;                 // SW: full word (4 bytes)
-            default: dmem_mask = 4'b1111;               // Default to word
-        endcase
-    end
+    wire [3:0] dmem_mask;
+    assign dmem_mask = (funct3[1:0] == 2'b00) ? (4'b0001 << byte_offset) :  // SB: single byte
+                       (funct3[1:0] == 2'b01) ? (4'b0011 << byte_offset) :  // SH: half-word (2 bytes)
+                       4'b1111;                                             // SW: full word (4 bytes) / default
     assign o_dmem_mask = dmem_mask;
 
     // Shift store data to correct byte lanes based on byte offset
@@ -392,6 +387,7 @@ module hart #(
 
     wire is_lui = (opcode == 7'b0110111);              // Load Upper Immediate
     wire is_auipc = (opcode == 7'b0010111);            // Add Upper Immediate to PC
+    wire is_store = (opcode == 7'b0100011);            // Store instructions
 
     // Register Write Data Selection
     assign rd_data = mem_to_reg ? mem_read_data :       // Load instructions: memory data
@@ -449,7 +445,7 @@ module hart #(
     assign o_retire_rs2_raddr = rs2;                    // Source register 2 address
     assign o_retire_rs1_rdata = rs1_data;               // Source register 1 data
     assign o_retire_rs2_rdata = rs2_data;               // Source register 2 data
-    assign o_retire_rd_waddr = rd;                      // Destination register address
+    assign o_retire_rd_waddr = (is_branch || is_store) ? 5'b00000 : rd;         // Destination register address
     assign o_retire_rd_wdata = rd_data;                 // Destination register data
     assign o_retire_pc = pc;                            // Current PC
     assign o_retire_next_pc = next_pc;                  // Next PC
