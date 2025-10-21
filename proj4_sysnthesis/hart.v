@@ -444,7 +444,7 @@ module hart #(
     assign o_retire_valid = 1'b1;                       // Always valid in single-cycle
     assign o_retire_inst = inst;                        // Current instruction word
     assign o_retire_trap = illegal_inst | unaligned_pc | unaligned_mem; // Any trap condition
-    assign o_retire_halt = (opcode == 7'b1110011) && (funct3 == 3'b000) && (inst[31:20] == 12'h001); // EBREAK
+    assign o_retire_halt = o_retire_trap | ((opcode == 7'b1110011) && (funct3 == 3'b000) && (inst[31:20] == 12'h001)); // Trap conditions or EBREAK
     assign o_retire_rs1_raddr = rs1;                    // Source register 1 address
     assign o_retire_rs2_raddr = rs2;                    // Source register 2 address
     assign o_retire_rs1_rdata = rs1_data;               // Source register 1 data

@@ -77,16 +77,16 @@ module alu_ctl (
         // Used by: R-type, Load, Store, Branch, JAL, JALR
         //---------------------------------------------------------------------
         (alu_op == 2'b00) ? (
-            // For R-type instructions, func37[3] = funct7[5] distinguishes ADD/SUB
-            (func37[3] == 1'b0) ? (  // funct7[5] = 0 (normal operations)
+            // For R-type and branch instructions, func37[3] = funct7[5] distinguishes ADD/SUB
+            (func37[3] == 1'b0) ? (  // funct7[5] = 0 (normal operations or branch comparisons)
                 (func37[2:0] == 3'b000) ? 4'b0000 : // ADD
-                (func37[2:0] == 3'b111) ? 4'b0010 : // AND
-                (func37[2:0] == 3'b110) ? 4'b0011 : // OR
-                (func37[2:0] == 3'b100) ? 4'b0100 : // XOR
                 (func37[2:0] == 3'b001) ? 4'b0101 : // SLL (Shift Left Logical)
+                (func37[2:0] == 3'b010) ? 4'b1000 : // SLT (BLT branch, SLTI instruction, signed comparison)
+                (func37[2:0] == 3'b011) ? 4'b1001 : // SLTU (BLTU branch funct3=011, SLTIU instruction, unsigned comparison)
+                (func37[2:0] == 3'b100) ? 4'b0100 : // XOR
                 (func37[2:0] == 3'b101) ? 4'b0110 : // SRL (Shift Right Logical)
-                (func37[2:0] == 3'b010) ? 4'b1000 : // SLT (Set Less Than)
-                (func37[2:0] == 3'b011) ? 4'b1001 : // SLTU (Set Less Than Unsigned)
+                (func37[2:0] == 3'b110) ? 4'b1001 : // BLTU branch (funct3=110, use SLTU for unsigned)
+                (func37[2:0] == 3'b111) ? 4'b0010 : // AND
                 4'b1111 // Invalid combination
             ) : (  // funct7[5] = 1 (alternate operations)
                 (func37[2:0] == 3'b000) ? 4'b0001 : // SUB (Subtract)
