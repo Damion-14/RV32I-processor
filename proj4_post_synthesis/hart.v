@@ -250,18 +250,14 @@ module hart #(
 
     // Branch Condition Evaluation
     // Determines if branch should be taken based on branch type and ALU flags
-    reg branch_condition;
-    always @(*) begin
-        case (bj_type)
-            3'b000: branch_condition = alu_eq;      // BEQ: branch if equal
-            3'b001: branch_condition = ~alu_eq;     // BNE: branch if not equal
-            3'b100: branch_condition = alu_slt;     // BLT: branch if less than (signed)
-            3'b101: branch_condition = ~alu_slt;    // BGE: branch if greater/equal (signed)
-            3'b110: branch_condition = alu_slt;     // BLTU: branch if less than (unsigned)
-            3'b111: branch_condition = ~alu_slt;    // BGEU: branch if greater/equal (unsigned)
-            default: branch_condition = 1'b0;       // No branch
-        endcase
-    end
+    wire branch_condition;
+    assign branch_condition = (bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
+                              (bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
+                              (bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
+                              (bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
+                              (bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
+                              (bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
+                              1'b0;                                  // Default: No branch
 
     assign branch_taken = is_branch & branch_condition;
 
@@ -312,15 +308,11 @@ module hart #(
     assign o_dmem_mask = dmem_mask;
 
     // Shift store data to correct byte lanes based on byte offset
-    reg [31:0] store_data_shifted;
-    always @(*) begin
-        case (byte_offset)
-            2'b00: store_data_shifted = rs2_data;           // No shift needed
-            2'b01: store_data_shifted = rs2_data << 8;      // Shift left 8 bits
-            2'b10: store_data_shifted = rs2_data << 16;     // Shift left 16 bits
-            2'b11: store_data_shifted = rs2_data << 24;     // Shift left 24 bits
-        endcase
-    end
+    wire [31:0] store_data_shifted;
+    assign store_data_shifted = (byte_offset == 2'b00) ? rs2_data :          // No shift needed
+                                (byte_offset == 2'b01) ? (rs2_data << 8) :   // Shift left 8 bits
+                                (byte_offset == 2'b10) ? (rs2_data << 16) :  // Shift left 16 bits
+                                (rs2_data << 24);                            // Shift left 24 bits
     assign o_dmem_wdata = store_data_shifted;
 
     //-------------------------------------------------------------------------
@@ -338,7 +330,7 @@ module hart #(
                     2'b00: load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
                     2'b01: load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
                     2'b10: load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
-                    2'b11: load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
+                    default: load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
                 endcase
             end
 
@@ -346,7 +338,7 @@ module hart #(
             3'b001: begin
                 case (byte_offset[1])
                     1'b0: load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
-                    1'b1: load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
+                    default: load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
                 endcase
             end
 
@@ -359,7 +351,7 @@ module hart #(
                     2'b00: load_data_processed = {24'b0, i_dmem_rdata[7:0]};
                     2'b01: load_data_processed = {24'b0, i_dmem_rdata[15:8]};
                     2'b10: load_data_processed = {24'b0, i_dmem_rdata[23:16]};
-                    2'b11: load_data_processed = {24'b0, i_dmem_rdata[31:24]};
+                    default: load_data_processed = {24'b0, i_dmem_rdata[31:24]};
                 endcase
             end
 
@@ -367,7 +359,7 @@ module hart #(
             3'b101: begin
                 case (byte_offset[1])
                     1'b0: load_data_processed = {16'b0, i_dmem_rdata[15:0]};
-                    1'b1: load_data_processed = {16'b0, i_dmem_rdata[31:16]};
+                    default: load_data_processed = {16'b0, i_dmem_rdata[31:16]};
                 endcase
             end
 
