@@ -6,7 +6,7 @@ Report : timing
         -max_paths 1
 Design : hart
 Version: X-2025.06
-Date   : Mon Oct 20 21:35:33 2025
+Date   : Mon Oct 20 22:44:23 2025
 ****************************************
 
  # A fanout number of 1000 was used for high fanout net computations.

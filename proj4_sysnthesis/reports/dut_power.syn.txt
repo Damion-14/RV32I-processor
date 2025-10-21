@@ -7,7 +7,7 @@ Report : power
         -analysis_effort low
 Design : hart
 Version: X-2025.06
-Date   : Mon Oct 20 21:35:33 2025
+Date   : Mon Oct 20 22:44:23 2025
 ****************************************
 
 
