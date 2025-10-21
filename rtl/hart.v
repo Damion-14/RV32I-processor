@@ -305,15 +305,10 @@ module hart #(
     // and the appropriate mask must be generated based on access size.
 
     // Generate byte mask based on access size and byte offset
-    reg [3:0] dmem_mask;
-    always @(posedge i_clk) begin
-        case (funct3[1:0])
-            2'b00: dmem_mask = 4'b0001 << byte_offset;  // SB: single byte
-            2'b01: dmem_mask = 4'b0011 << byte_offset;  // SH: half-word (2 bytes)
-            2'b10: dmem_mask = 4'b1111;                 // SW: full word (4 bytes)
-            default: dmem_mask = 4'b1111;               // Default to word
-        endcase
-    end
+    wire [3:0] dmem_mask;
+    assign dmem_mask = (funct3[1:0] == 2'b00) ? (4'b0001 << byte_offset) :  // SB: single byte
+                       (funct3[1:0] == 2'b01) ? (4'b0011 << byte_offset) :  // SH: half-word (2 bytes)
+                       4'b1111;                                             // SW: full word (4 bytes) / default
     assign o_dmem_mask = dmem_mask;
 
     // Shift store data to correct byte lanes based on byte offset
