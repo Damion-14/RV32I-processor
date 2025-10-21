@@ -1,0 +1,6 @@
+[Group Member 1]: Damion Huppert
+[Group Member 2]: Milo Keyes
+[Group Member 3]: Charles Maysack-Landry
+[Group Member 4]: Samad Quryshi
+
+We certify that our usage of LLMs is consistent with UW-Madison's academic integrity policies.
