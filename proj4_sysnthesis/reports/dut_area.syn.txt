@@ -1,0 +1,32 @@
+ 
+****************************************
+Report : area
+Design : hart
+Version: X-2025.06
+Date   : Mon Oct 20 18:26:08 2025
+****************************************
+
+Information: Updating design information... (UID-85)
+Warning: Design 'hart' contains 1 high-fanout nets. A fanout number of 1000 will be used for delay calculations involving these nets. (TIM-134)
+Library(s) Used:
+
+    saed32rvt_tt0p85v25c (File: /cae/apps/data/saed32_edk-2023/lib/stdcell_rvt/db_nldm/saed32rvt_tt0p85v25c.db)
+
+Number of ports:                          378
+Number of nets:                          6507
+Number of cells:                         5327
+Number of combinational cells:           4268
+Number of sequential cells:              1056
+Number of macros/black boxes:               0
+Number of buf/inv:                        672
+Number of references:                      42
+
+Combinational area:              10632.368452
+Buf/Inv area:                     1133.736420
+Noncombinational area:            6977.777893
+Macro/Black Box area:                0.000000
+Net Interconnect area:            7861.460625
+
+Total cell area:                 17610.146345
+Total area:                      25471.606970
+1
