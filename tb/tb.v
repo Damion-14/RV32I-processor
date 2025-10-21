@@ -97,7 +97,13 @@ module hart_tb ();
 
             if (valid) begin
                 // Base information for all instructions.
-                $write("%05d [%08h] %08h r[%d]=%08h r[%d]=%08h", cycles, pc, inst, rs1_raddr, rs1_rdata, rs2_raddr, rs2_rdata);
+                if (imem_rdata[3:0] == 4'b0111 || imem_rdata[6:0] == 7'b111_0011)
+                    $write("%05d [%08h] %08h r[xx]=xxxxxxxx r[xx]=xxxxxxxx", cycles, pc, inst);
+                else if (imem_rdata[6:0] == 7'b001_0011 || imem_rdata[6:0] == 7'b000_0011 || 
+                         imem_rdata[6:0] == 7'b110_1111 || imem_rdata[6:0] == 7'b110_0111)
+                    $write("%05d [%08h] %08h r[%d]=%08h r[xx]=xxxxxxxx", cycles, pc, inst, rs1_raddr, rs1_rdata);
+                else
+                    $write("%05d [%08h] %08h r[%d]=%08h r[%d]=%08h", cycles, pc, inst, rs1_raddr, rs1_rdata, rs2_raddr, rs2_rdata);
                 // Only display write information for instructions that write.
                 if (rd_waddr != 5'd0)
                     $write(" w[%d]=%08h", rd_waddr, rd_wdata);

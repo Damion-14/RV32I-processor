@@ -24,10 +24,10 @@ module alu_ctl (
     // INPUT SIGNALS
     //=========================================================================
     input wire [1:0] alu_op,           // High-level ALU operation type from main control
-                                       // 2'b00: ADD (R-type, Load, Store, Branch, JAL, JALR)
+                                       // 2'b00: ADD (R-type, Branch, JAL, JALR)
                                        // 2'b01: Function-specific (I-type ALU instructions)
                                        // 2'b10: PASS_B (AUIPC, LUI - currently unused)
-                                       // 2'b11: Invalid
+                                       // 2'b11: Load/Store (always ADD)
 
     input wire [3:0] func37,           // Combined function codes: {funct7[5], funct3[2:0]}
                                        // Used to distinguish between similar operations
@@ -74,19 +74,19 @@ module alu_ctl (
     assign alu_control =
         //---------------------------------------------------------------------
         // Class 1: ADD-type operations (alu_op = 2'b00)
-        // Used by: R-type, Load, Store, Branch, JAL, JALR
+        // Used by: R-type, Branch, JAL, JALR
         //---------------------------------------------------------------------
         (alu_op == 2'b00) ? (
             // For R-type and branch instructions, func37[3] = funct7[5] distinguishes ADD/SUB
             (func37[3] == 1'b0) ? (  // funct7[5] = 0 (normal operations or branch comparisons)
-                (func37[2:0] == 3'b000) ? 4'b0000 : // ADD
-                (func37[2:0] == 3'b001) ? 4'b0101 : // SLL (Shift Left Logical)
-                (func37[2:0] == 3'b010) ? 4'b1000 : // SLT (BLT branch, SLTI instruction, signed comparison)
-                (func37[2:0] == 3'b011) ? 4'b1001 : // SLTU (BLTU branch funct3=011, SLTIU instruction, unsigned comparison)
-                (func37[2:0] == 3'b100) ? 4'b0100 : // XOR
-                (func37[2:0] == 3'b101) ? 4'b0110 : // SRL (Shift Right Logical)
-                (func37[2:0] == 3'b110) ? 4'b1001 : // BLTU branch (funct3=110, use SLTU for unsigned)
-                (func37[2:0] == 3'b111) ? 4'b0010 : // AND
+                (func37[2:0] == 3'b000) ? 4'b0000 : // ADD / BEQ branch
+                (func37[2:0] == 3'b001) ? 4'b0101 : // SLL (Shift Left Logical) / BNE branch
+                (func37[2:0] == 3'b010) ? 4'b1000 : // SLT / BLT branch (signed comparison)
+                (func37[2:0] == 3'b011) ? 4'b1001 : // SLTU (unsigned comparison)
+                (func37[2:0] == 3'b100) ? 4'b0100 : // XOR / BLT branch
+                (func37[2:0] == 3'b101) ? 4'b0110 : // SRL (Shift Right Logical) / BGE branch
+                (func37[2:0] == 3'b110) ? 4'b0011 : // OR / BLTU branch
+                (func37[2:0] == 3'b111) ? 4'b0010 : // AND / BGEU branch
                 4'b1111 // Invalid combination
             ) : (  // funct7[5] = 1 (alternate operations)
                 (func37[2:0] == 3'b000) ? 4'b0001 : // SUB (Subtract)
@@ -114,7 +114,12 @@ module alu_ctl (
             4'b1111 // Invalid combination
         ) :
         //---------------------------------------------------------------------
-        // Class 3: Pass-through operations (alu_op = 2'b10)
+        // Class 3: Load/Store operations
+        // Used by: LB, LH, LW, LBU, LHU, SB, SH, SW (always ADD for address calculation)
+        //---------------------------------------------------------------------
+        (alu_op == 2'b11) ? 4'b0000 :
+        //---------------------------------------------------------------------
+        // Class 4: Pass-through operations (alu_op = 2'b10)
         // Used by: AUIPC, LUI (currently handled in hart.v, not used here)
         //---------------------------------------------------------------------
         (alu_op == 2'b10) ? 4'b1010 : // PASS_B (pass second operand through)
