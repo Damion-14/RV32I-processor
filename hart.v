@@ -378,9 +378,7 @@ module hart #(
 
     // Forwarding Mux for rs1 (ALU operand A)
     // 00 = use data from ID/EX, 01 = forward from EX/MEM, 10 = forward from MEM/WB
-    assign forwarded_rs1_data = (forward_a == 2'b01) ? ex_mem_alu_result :
-                                (forward_a == 2'b10) ? rd_data :
-                                id_ex_rs1_data;
+    assign forwarded_rs1_data = id_ex_rs1_data;
 
     // Forwarding Mux for rs2 (ALU operand B or store data)
     // 00 = use data from ID/EX, 01 = forward from EX/MEM, 10 = forward from MEM/WB
@@ -428,12 +426,12 @@ module hart #(
     // Branch Condition Evaluation
     // Determines if branch should be taken based on branch type and ALU flags
     wire branch_condition;
-    assign branch_condition = (id_ex_bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
-                              (id_ex_bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
-                              (id_ex_bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
-                              (id_ex_bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
-                              (id_ex_bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
-                              (id_ex_bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
+    assign branch_condition = (bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
+                              (bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
+                              (bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
+                              (bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
+                              (bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
+                              (bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
                               1'b0;                                  // Default: No branch
 
     assign branch_taken = is_branch & branch_condition;
@@ -451,9 +449,6 @@ module hart #(
                      (is_jal | branch_taken) ? branch_target : // JAL/taken branch: PC + imm
                      pc_plus_4;                              // Default: current PC + 4
 
-    //-------------------------------------------------------------------------
-    // 3.4: EX/MEM Pipeline Register
-    //-------------------------------------------------------------------------
     // Flush asserted when a control-flow change is taken in EX
     assign flush = (is_jalr | is_jal | branch_taken);
 
@@ -750,7 +745,7 @@ module hart #(
     assign rd_data = mem_wb_mem_to_reg ? mem_wb_mem_read_data :       // Load instructions: memory data
                      (mem_wb_is_jal | mem_wb_is_jalr) ? mem_wb_pc_plus_4 :   // JAL/JALR: return address (PC+4)
                      is_lui ? mem_wb_imm :                     // LUI: immediate value
-                     is_auipc ? (mem_wb_pc_plus_4 + mem_wb_imm) :            // AUIPC: PC + immediate
+                     is_auipc ? (mem_wb_pc + mem_wb_imm) :            // AUIPC: PC + immediate
                      mem_wb_alu_result;                        // Default: ALU result
 
     //=========================================================================
