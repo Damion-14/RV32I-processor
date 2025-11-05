@@ -1,8 +1,8 @@
 //=============================================================================
-// RISC-V RV32I Single-Cycle Processor (Hart)
+// RISC-V RV32I Pipelined Processor (Hart)
 //=============================================================================
-// This module implements a complete single-cycle RISC-V processor supporting
-// the RV32I base instruction set.
+// This module implements a 5-stage pipelined RISC-V processor supporting
+// the RV32I base instruction set. The processor uses the following pipeline stages:
 //
 // 1. INSTRUCTION FETCH (IF)  - Fetch instruction from memory
 // 2. INSTRUCTION DECODE (ID) - Decode instruction and generate control signals
@@ -121,7 +121,7 @@ module hart #(
 
     // IF/ID Pipeline Register
     always @(posedge i_clk) begin
-        if (i_rst || flush) begin
+        if (i_rst) begin
             if_id_inst    <= 32'b0;
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
@@ -136,7 +136,7 @@ module hart #(
             if_id_inst    <= inst;
             if_id_pc      <= pc;
             if_id_next_pc <= pc_plus_4;
-            if_id_valid   <= 1'b1;  // Valid unless reset/flush (handled above)
+            if_id_valid   <= 1'b1;  // Always valid when not flushed/stalled
         end
     end
     //=========================================================================
@@ -242,10 +242,10 @@ module hart #(
     reg         id_ex_reg_write;        // ID/EX pipeline register for register write enable
     reg  [6:0]  id_ex_opcode;           // ID/EX pipeline register for opcode
     reg  [31:0] id_ex_pc_plus_4;        // ID/EX pipeline register for PC + 4
-    reg  [2:0]  id_ex_funct3;           // ID/EX pipeline register for funct3
-    reg  [6:0]  id_ex_funct7;           // ID/EX pipeline register for funct7
-    reg  [31:0] id_ex_inst;             // ID/EX pipeline register for instruction
-    reg         id_ex_valid;            // ID/EX pipeline valid bit
+    reg  [2:0]  id_ex_funct3;          // ID/EX pipeline register for funct3
+    reg  [6:0]  id_ex_funct7;          // ID/EX pipeline register for funct7
+    reg  [31:0] id_ex_inst;            // ID/EX pipeline register for instruction
+    reg         id_ex_valid;           // ID/EX pipeline valid bit
 
     // ID/EX Pipeline Register
     always @(posedge i_clk) begin
@@ -264,11 +264,11 @@ module hart #(
             id_ex_mem_write  <= 1'b0;
             id_ex_mem_to_reg <= 1'b0;
             id_ex_reg_write  <= 1'b0;
-            id_ex_opcode     <= 7'b0;
+            id_ex_opcode     <= 7'b0010011;  // I-type for NOP
             id_ex_pc_plus_4  <= 32'b0;
             id_ex_funct3     <= 3'b0;
             id_ex_funct7     <= 7'b0;
-            id_ex_inst       <= 32'b0;
+            id_ex_inst       <= 32'h00000013;  // NOP
             id_ex_valid      <= 1'b0;
         end else if (bubble_id_ex) begin
             // Insert bubble: preserve data but deassert all control signals
@@ -445,18 +445,15 @@ module hart #(
     // Branch Condition Evaluation
     // Determines if branch should be taken based on branch type and ALU flags
     wire branch_condition;
-    assign branch_condition = (id_ex_bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
-                              (id_ex_bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
-                              (id_ex_bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
-                              (id_ex_bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
-                              (id_ex_bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
-                              (id_ex_bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
+    assign branch_condition = (bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
+                              (bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
+                              (bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
+                              (bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
+                              (bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
+                              (bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
                               1'b0;                                  // Default: No branch
 
-    // Branch/jump decisions gated by valid bit to prevent invalid instructions from causing control flow changes
-    assign branch_taken = id_ex_valid && is_branch & branch_condition;
-    wire jal_taken  = id_ex_valid && is_jal;
-    wire jalr_taken = id_ex_valid && is_jalr;
+    assign branch_taken = is_branch & branch_condition;
 
     // Target Address Calculation
     wire [31:0] branch_target;             // Branch/JAL target address
@@ -467,12 +464,12 @@ module hart #(
 
     // Next PC Selection (feeds back to IF stage)
     // Default sequential PC should use current PC+4; redirect only when EX decides a control flow change
-    assign next_pc = jalr_taken ? jalr_target :                 // JALR: rs1 + imm
-                     (jal_taken | branch_taken) ? branch_target : // JAL/taken branch: PC + imm
+    assign next_pc = is_jalr ? jalr_target :                 // JALR: rs1 + imm
+                     (is_jal | branch_taken) ? branch_target : // JAL/taken branch: PC + imm
                      pc_plus_4;                              // Default: current PC + 4
 
-    // Flush asserted when a control-flow change is taken in EX (only for valid instructions)
-    assign flush = jalr_taken | jal_taken | branch_taken;
+    // Flush asserted when a control-flow change is taken in EX
+    assign flush = (is_jalr | is_jal | branch_taken);
 
     //Pipeline registers between EX and MEM stages
     reg  [31:0] ex_mem_pc;               // EX/MEM pipeline register for PC
@@ -505,7 +502,7 @@ module hart #(
         if (i_rst) begin
             ex_mem_alu_result    <= 32'b0;
             ex_mem_rs2_data      <= 32'b0;
-            ex_mem_opcode        <= 7'b0;
+            ex_mem_opcode        <= 7'b0010011;  // I-type for NOP
             ex_mem_pc_plus_4     <= 32'b0;
             ex_mem_mem_read      <= 1'b0;
             ex_mem_mem_write     <= 1'b0;
@@ -522,14 +519,14 @@ module hart #(
             ex_mem_is_jalr       <= 1'b0;
             ex_mem_is_branch     <= 1'b0;
             ex_mem_is_store      <= 1'b0;
-            ex_mem_inst          <= 32'b0;
+            ex_mem_inst          <= 32'h00000013;  // NOP
             ex_mem_rs1_data      <= 32'b0;
             ex_mem_unaligned_pc  <= 1'b0;
             ex_mem_valid         <= 1'b0;
             ex_mem_next_pc       <= 32'b0;
         end else begin
             ex_mem_alu_result    <= alu_result;
-            ex_mem_rs2_data      <= forwarded_rs2_data;
+            ex_mem_rs2_data      <= id_ex_rs2_data;  // Original register value for retire interface
             ex_mem_opcode        <= id_ex_opcode;
             ex_mem_pc_plus_4     <= id_ex_pc_plus_4;
             ex_mem_mem_read      <= id_ex_mem_read;
@@ -548,7 +545,7 @@ module hart #(
             ex_mem_is_branch     <= is_branch;
             ex_mem_is_store      <= (id_ex_opcode == 7'b0100011);
             ex_mem_inst          <= id_ex_inst;
-            ex_mem_rs1_data      <= forwarded_rs1_data;
+            ex_mem_rs1_data      <= id_ex_rs1_data;  // Original register value for retire interface
             ex_mem_unaligned_pc  <= (is_jal | branch_taken) ? (branch_target[1:0] != 2'b00) :
                                     (is_jalr ? (jalr_target[1:0] != 2'b00) : 1'b0);
             ex_mem_valid         <= id_ex_valid;
@@ -695,7 +692,7 @@ module hart #(
             mem_wb_mem_to_reg     <= 1'b0;
             mem_wb_reg_write      <= 1'b0;
             mem_wb_pc_plus_4      <= 32'b0;
-            mem_wb_opcode         <= 7'b0;
+            mem_wb_opcode         <= 7'b0010011;  // I-type for NOP
             mem_wb_imm            <= 32'b0;
             mem_wb_is_jal         <= 1'b0;
             mem_wb_is_jalr        <= 1'b0;
@@ -708,7 +705,7 @@ module hart #(
             mem_wb_rs1_data       <= 32'b0;
             mem_wb_rs2_data       <= 32'b0;
             mem_wb_pc             <= 32'b0;
-            mem_wb_inst           <= 32'b0;
+            mem_wb_inst           <= 32'h00000013;  // NOP
             mem_wb_is_store       <= 1'b0;
             mem_wb_unaligned_pc   <= 1'b0;
             mem_wb_unaligned_mem  <= 1'b0;
