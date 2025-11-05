@@ -82,29 +82,6 @@ module hart #(
 );
 
     //=========================================================================
-    // FORWARD DECLARATIONS FOR PIPELINE SIGNALS
-    //=========================================================================
-    // These signals are used across multiple pipeline stages and need to be
-    // declared early to avoid "undefined variable" errors
-    
-    // Hazard detection and control signals
-    wire stall_pc, stall_if_id, bubble_id_ex;
-    wire flush;
-    
-    // EX/MEM pipeline registers (needed for forwarding in EX stage)
-    reg  [31:0] ex_mem_alu_result;
-    reg  [4:0]  ex_mem_rd;
-    reg         ex_mem_reg_write;
-    reg         ex_mem_valid;            // EX/MEM pipeline valid bit
-
-    
-    // MEM/WB pipeline registers (needed for RF write and forwarding)
-    reg  [4:0]  mem_wb_rd;
-    reg         mem_wb_reg_write;
-    reg         mem_wb_valid;            // MEM/WB pipeline valid bit
-
-
-    //=========================================================================
     // STAGE 1: INSTRUCTION FETCH (IF)
     //=========================================================================
     // The IF stage manages the program counter and fetches instructions from
@@ -119,9 +96,11 @@ module hart #(
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
     assign o_imem_raddr = pc;              // Send current PC to instruction memory
 
+    wire stall_pc, stall_if_id, bubble_id_ex;
+
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
-    always @(negedge i_clk) begin
+    always @(posedge i_clk) begin
         if (i_rst) begin
             pc <= RESET_ADDR;              // Reset PC to specified address
         end else if (!stall_pc) begin
@@ -139,8 +118,11 @@ module hart #(
     reg  [31:0] if_id_next_pc;          // IF/ID pipeline register for next PC
     reg         if_id_valid;            // IF/ID pipeline valid bit
 
+    // Flush signal asserted when a control-flow change (branch/jump) is taken in EX
+    wire flush;
+
     // IF/ID Pipeline Register
-    always @(negedge i_clk) begin
+    always @(posedge i_clk) begin
         if (i_rst) begin
             if_id_inst    <= 32'b0;
             if_id_pc      <= 32'b0;
@@ -151,12 +133,12 @@ module hart #(
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
             if_id_next_pc <= if_id_next_pc;
-            if_id_valid   <= 1'b0;
+            if_id_valid   <= if_id_valid;
         end else begin
             if_id_inst    <= inst;
             if_id_pc      <= pc;
             if_id_next_pc <= pc_plus_4;
-            if_id_valid   <= 1'b1;
+            if_id_valid   <= 1'b1;  // Always valid when not flushed/stalled
         end
     end
     //=========================================================================
@@ -347,7 +329,6 @@ module hart #(
     // Hazard Detection Unit
     //-------------------------------------------------------------------------
     // Detects RAW hazards and generates stall signals for load-use hazards
-
     hazard_unit hazard_detector (
         .i_id_rs1(rs1),
         .i_id_rs2(rs2),
@@ -371,9 +352,9 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd),
-        .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
+        .i_mem_reg_write(ex_mem_reg_write),
         .i_wb_rd(mem_wb_rd),
-        .i_wb_reg_write(mem_wb_reg_write && mem_wb_valid),
+        .i_wb_reg_write(mem_wb_reg_write),
         .o_forward_a(forward_a),
         .o_forward_b(forward_b)
     );
@@ -497,14 +478,14 @@ module hart #(
     reg  [31:0] ex_mem_imm;              // EX/MEM pipeline register for immediate
     reg  [4:0]  ex_mem_rs1;              // EX/MEM pipeline register for rs1 address
     reg  [4:0]  ex_mem_rs2;              // EX/MEM pipeline register for rs2 address
-    // ex_mem_rd already declared at top
+    reg  [4:0]  ex_mem_rd;               // EX/MEM pipeline register for rd address
     reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
     reg         ex_mem_mem_write;        // EX/MEM pipeline register for memory write enable
     reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
-    // ex_mem_reg_write already declared at top
+    reg         ex_mem_reg_write;        // EX/MEM pipeline register for register write enable
     reg  [6:0]  ex_mem_opcode;           // EX/MEM pipeline register for opcode
     reg  [31:0] ex_mem_pc_plus_4;        // EX/MEM pipeline register for PC + 4
-    // ex_mem_alu_result already declared at top
+    reg  [31:0] ex_mem_alu_result;       // EX/MEM pipeline register for ALU result
     reg  [2:0]  ex_mem_funct3;          // EX/MEM pipeline register for funct3
     reg  [6:0]  ex_mem_funct7;          // EX/MEM pipeline register for funct7
     reg         ex_mem_is_jal;           // EX/MEM pipeline register for is_jal
@@ -513,6 +494,7 @@ module hart #(
     reg         ex_mem_is_store;         // EX/MEM pipeline register for is_store
     reg  [31:0] ex_mem_inst;           // EX/MEM pipeline register for instruction
     reg         ex_mem_unaligned_pc;     // EX/MEM pipeline register for unaligned PC flag
+    reg         ex_mem_valid;            // EX/MEM pipeline valid bit
     reg  [31:0] ex_mem_next_pc;          // EX/MEM pipeline register for actual next PC
 
     // EX/MEM Pipeline Register
@@ -674,9 +656,9 @@ module hart #(
     //-------------------------------------------------------------------------
     reg  [31:0] mem_wb_mem_read_data;     // MEM/WB pipeline register for memory read data
     reg  [31:0] mem_wb_alu_result;        // MEM/WB pipeline register for ALU result
-    // mem_wb_rd already declared at top
+    reg  [4:0]  mem_wb_rd;                // MEM/WB pipeline register for rd address
     reg         mem_wb_mem_to_reg;        // MEM/WB pipeline register for memory to register select
-    // mem_wb_reg_write already declared at top (reg for RF)
+    reg         mem_wb_reg_write;         // MEM/WB pipeline register for register write enable (reg for RF)
     reg  [31:0] mem_wb_pc_plus_4;        // MEM/WB pipeline register for PC + 4
     reg  [6:0]  mem_wb_opcode;           // MEM/WB pipeline register for opcode
     reg  [31:0] mem_wb_imm;             // MEM/WB pipeline register for immediate value
@@ -695,6 +677,7 @@ module hart #(
     reg         mem_wb_is_store;         // MEM/WB pipeline register for is_store
     reg         mem_wb_unaligned_pc;     // MEM/WB pipeline register for unaligned PC trap flag
     reg         mem_wb_unaligned_mem;    // MEM/WB pipeline register for unaligned MEM trap flag
+    reg         mem_wb_valid;            // MEM/WB pipeline valid bit
     reg  [31:0] mem_wb_dmem_addr;        // MEM/WB pipeline register for memory address
     reg  [ 3:0] mem_wb_dmem_mask;        // MEM/WB pipeline register for memory mask
     reg  [31:0] mem_wb_dmem_wdata;       // MEM/WB pipeline register for memory write data
