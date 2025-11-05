@@ -22,6 +22,10 @@ module hazard_unit (
     input  wire [4:0]  i_id_rs1,
     input  wire [4:0]  i_id_rs2,
 
+    // Branch/jump signals from ID stage
+    input  wire        i_id_is_branch,     // Is ID stage instruction a branch?
+    input  wire        i_id_is_jalr,       // Is ID stage instruction JALR?
+
     // Destination register and control signals from EX stage
     input  wire [4:0]  i_ex_rd,
     input  wire        i_ex_reg_write,
@@ -47,6 +51,9 @@ module hazard_unit (
     //
     // Even with forwarding, load-use hazards require a 1-cycle stall because
     // the load data is not available until after the MEM stage completes.
+    //
+    // With branches in ID stage, we must also stall if a branch/JALR in ID
+    // depends on a load in EX, since the branch needs the data immediately.
 
     wire load_use_hazard;
 
