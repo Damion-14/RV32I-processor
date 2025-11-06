@@ -303,12 +303,16 @@ module hart #(
     wire [31:0] branch_rs1_data;           // rs1 data with forwarding for branches
     wire [31:0] branch_rs2_data;           // rs2 data with forwarding for branches
 
+    // Data to forward from MEM stage: use memory read data for loads, ALU result otherwise
+    wire [31:0] mem_forward_data;
+    assign mem_forward_data = ex_mem_mem_to_reg ? mem_read_data : ex_mem_alu_result;
+
     // Forward from EX/MEM or MEM/WB stage to ID stage for branch operands
-    assign branch_rs1_data = (forward_branch_a == 2'b01) ? ex_mem_alu_result :
+    assign branch_rs1_data = (forward_branch_a == 2'b01) ? mem_forward_data :
                              (forward_branch_a == 2'b10) ? rd_data :
                              rs1_data;
 
-    assign branch_rs2_data = (forward_branch_b == 2'b01) ? ex_mem_alu_result :
+    assign branch_rs2_data = (forward_branch_b == 2'b01) ? mem_forward_data :
                              (forward_branch_b == 2'b10) ? rd_data :
                              rs2_data;
 
