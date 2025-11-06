@@ -859,6 +859,7 @@ module hart #(
     reg         mem_wb_unaligned_pc;     // MEM/WB pipeline register for unaligned PC trap flag
     reg         mem_wb_unaligned_mem;    // MEM/WB pipeline register for unaligned MEM trap flag
     reg  [31:0] mem_wb_dmem_addr;        // MEM/WB pipeline register for memory address
+    reg  [ 1:0] mem_wb_byte_offset;      // MEM/WB pipeline register for original byte offset
     reg  [ 3:0] mem_wb_dmem_mask;        // MEM/WB pipeline register for memory mask
     reg  [31:0] mem_wb_dmem_wdata;       // MEM/WB pipeline register for memory write data
     reg  [31:0] mem_wb_next_pc;          // MEM/WB pipeline register for actual next PC
@@ -892,6 +893,7 @@ module hart #(
             mem_wb_unaligned_mem      <= 1'b0;
             mem_wb_valid              <= 1'b0;
             mem_wb_dmem_addr          <= 32'b0;
+            mem_wb_byte_offset        <= 2'b00;
             mem_wb_dmem_mask          <= 4'b0;
             mem_wb_dmem_wdata         <= 32'b0;
             mem_wb_next_pc            <= 32'b0;
@@ -926,6 +928,7 @@ module hart #(
                                           (ex_mem_funct3[1:0] == 2'b01 && dmem_addr_unaligned[0] != 1'b0));
             mem_wb_valid              <= ex_mem_valid;
             mem_wb_dmem_addr          <= o_dmem_addr;
+            mem_wb_byte_offset        <= byte_offset;
             mem_wb_dmem_mask          <= o_dmem_mask;
             mem_wb_dmem_wdata         <= o_dmem_wdata;
             mem_wb_next_pc            <= ex_mem_next_pc;
@@ -946,7 +949,7 @@ module hart #(
     // Reprocess current memory data for retiring load instructions
     // This ensures rd_data matches o_retire_dmem_rdata (i_dmem_rdata)
     wire [1:0] wb_byte_offset;
-    assign wb_byte_offset = mem_wb_dmem_addr[1:0];
+    assign wb_byte_offset = mem_wb_byte_offset;
 
     reg [31:0] wb_load_data_processed;
     always @(*) begin
