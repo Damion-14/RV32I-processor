@@ -74,7 +74,7 @@ module alu (
     
     assign o_result = (i_opsel == 3'b000) ? add_sub_result :
                       (i_opsel == 3'b001) ? sll_result :
-                      (i_opsel == 3'b010) ? slt_result :
+                      (i_opsel == 3'b010) ? i_op2 :
                       (i_opsel == 3'b011) ? slt_result :
                       (i_opsel == 3'b100) ? xor_result :
                       (i_opsel == 3'b101) ? srl_sra_result :

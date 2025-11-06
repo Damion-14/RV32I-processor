@@ -115,32 +115,51 @@ module hart #(
 
     // Program Counter (PC) Register and Logic
     reg  [31:0] pc;                        // Current program counter
+    reg         rst_store;
     wire [31:0] pc_plus_4;                 // PC + 4 for sequential execution
     wire [31:0] next_pc;                   // Next PC value (from ID stage)
+    wire        rst_stall;
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
-    assign o_imem_raddr = pc;              // Send current PC to instruction memory
+        assign o_imem_raddr = pc;              // Send current PC to instruction memory
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
     always @(posedge i_clk) begin
         if (i_rst) begin
-            pc <= RESET_ADDR;              // Reset PC to specified address
+            pc <= RESET_ADDR;            // Reset PC to specified address
         end else if (!stall_pc) begin
-            pc <= next_pc;                 // Update PC from ID stage (unless stalled)
-        end
-        // else: PC holds its current value during stall
+            pc <= next_pc;  
+        end             // else: PC holds its current value during stall
+        rst_store <= i_rst;
     end
+    assign rst_stall = rst_store;
 
     // Instruction Fetch from Memory
     wire [31:0] inst;                      // Current instruction word
     wire flush_if_id;
-    assign inst = i_imem_rdata;            // Direct connection to memory data
+    reg flush_if_id_d;
+    assign inst = i_imem_rdata;            // Instruction returned from (synchronous) imem
+
+    // The testbench models imem as synchronous (1-cycle latency). The instruction
+    // observed on 'inst' corresponds to the address presented on 'o_imem_raddr'
+    // in the previous cycle. Track that address so we can align IF/ID.pc with
+    // the arriving instruction correctly.
+    reg [31:0] fetch_pc;                   // PC used for the instruction arriving this cycle
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            fetch_pc <= RESET_ADDR;
+        end else if (!stall_pc) begin
+            fetch_pc <= pc;                // Address driven to imem this cycle
+        end else begin
+            fetch_pc <= fetch_pc;          // Hold during stall
+        end
+    end
 
     reg  [31:0] if_id_inst;             // IF/ID pipeline register for instruction
     reg  [31:0] if_id_pc;               // IF/ID pipeline register for PC
     reg  [31:0] if_id_next_pc;          // IF/ID pipeline register for next PC
-    reg         if_id_valid;            // IF/ID pipeline valid bit
+    reg         if_id_valid;            // IF/ID pipeline valid bi
 
     // IF/ID Pipeline Register
     always @(posedge i_clk) begin
@@ -149,22 +168,23 @@ module hart #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
-        end else if (flush_if_id) begin
+        end else if (flush_if_id | flush_if_id_d) begin
             // Flush pipeline: insert bubble (NOP)
             if_id_inst    <= 32'h00000013;  // NOP instruction
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
         end else if (stall_if_id) begin
-            // Hold current values during stall
+            // Hold current values during stall; preserve valid to avoid dropping the instruction
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
             if_id_next_pc <= if_id_next_pc;
-            if_id_valid   <= 1'b0;
+            if_id_valid   <= if_id_valid;
         end else begin
+            // Align IF/ID PC with the instruction returned by synchronous imem
             if_id_inst    <= inst;
-            if_id_pc      <= pc;
-            if_id_next_pc <= pc_plus_4;
+            if_id_pc      <= fetch_pc;
+            if_id_next_pc <= fetch_pc + 32'd4;
             if_id_valid   <= 1'b1;
         end
     end
@@ -317,6 +337,17 @@ module hart #(
     // Flush signal - asserted when control flow change taken in ID stage
     assign flush_if_id = (is_jalr_id | is_jal_id | branch_taken_id);
 
+    // With synchronous imem, the wrong-path instruction (from the address
+    // presented this cycle) arrives next cycle. Carry a 1-cycle delayed flush
+    // to squash that instruction as well.
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            flush_if_id_d <= 1'b0;
+        end else begin
+            flush_if_id_d <= flush_if_id;
+        end
+    end
+
     // Target address calculation
     wire [31:0] branch_target_id;          // Branch/JAL target address
     wire [31:0] jalr_target_id;            // JALR target address
@@ -389,11 +420,11 @@ module hart #(
             // Insert bubble: preserve data but deassert all control signals
             // This creates a NOP in the pipeline
             id_ex_pc            <= if_id_pc;
-            id_ex_rs1_data      <= rs1_data;
-            id_ex_rs2_data      <= rs2_data;
+            id_ex_rs1_data      <= id_ex_rs1_data;
+            id_ex_rs2_data      <= id_ex_rs2_data;
             id_ex_imm           <= imm;
-            id_ex_rs1           <= rs1;
-            id_ex_rs2           <= rs2;
+            id_ex_rs1           <= id_ex_rs1;
+            id_ex_rs2           <= id_ex_rs2;
             id_ex_rd            <= 5'b0;          // No destination register
             id_ex_alu_op        <= alu_op;
             id_ex_bj_type       <= bj_type;
@@ -461,6 +492,7 @@ module hart #(
         .i_ex_mem_read(id_ex_mem_read),
         .i_mem_rd(ex_mem_rd),
         .i_mem_reg_write(ex_mem_reg_write),
+        .i_rst_stall(rst_stall),
         .o_stall_pc(stall_pc),
         .o_stall_if_id(stall_if_id),
         .o_bubble_id_ex(bubble_id_ex)
@@ -476,9 +508,9 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd),
-        .i_mem_reg_write(ex_mem_reg_write),
+        .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
         .i_wb_rd(mem_wb_rd),
-        .i_wb_reg_write(mem_wb_reg_write),
+        .i_wb_reg_write(mem_wb_reg_write && mem_wb_valid),
         .o_forward_a(forward_a),
         .o_forward_b(forward_b)
     );

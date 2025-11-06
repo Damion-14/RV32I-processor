@@ -144,10 +144,10 @@ module ctl (
     // This implements a two-level control scheme: main control -> ALU control -> ALU
     assign alu_op = (opcode == 7'b0010011) ? 2'b01 : // I-type ALU (function-specific)
                     (opcode == 7'b0110011 ||
-                     opcode == 7'b1100011 || opcode == 7'b0110111 || opcode == 7'b0010111 ||
+                     opcode == 7'b1100011 || 
                      opcode == 7'b1101111 || opcode == 7'b1100111) ? 2'b00 : // ADD or don't care
                     (opcode == 7'b0000011 || opcode == 7'b0100011) ? 2'b11 : // Load/Store (always ADD)
-                    2'b10;                                                    // Invalid
+                    opcode == 7'b0110111 || opcode == 7'b0010111 ? 2'b10 : 2'b10;                                                    // Invalid
 
     //-------------------------------------------------------------------------
     // Memory Control Signals

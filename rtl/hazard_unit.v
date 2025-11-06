@@ -34,6 +34,7 @@ module hazard_unit (
     // Destination register and control signals from MEM stage
     input  wire [4:0]  i_mem_rd,
     input  wire        i_mem_reg_write,
+    input  wire        i_rst_stall,
 
     // Control outputs
     output wire        o_stall_pc,         // Stall program counter
@@ -57,11 +58,11 @@ module hazard_unit (
 
     wire load_use_hazard;
 
-    assign load_use_hazard = i_ex_mem_read &&              // EX stage is a load
+    assign load_use_hazard = i_ex_mem_read &&             // EX stage is a load
                              i_ex_reg_write &&             // EX stage will write a register
                              (i_ex_rd != 5'b0) &&          // Not writing to x0
                              ((i_ex_rd == i_id_rs1) ||     // ID stage reads rs1 from load
-                              (i_ex_rd == i_id_rs2));      // ID stage reads rs2 from load
+                              (i_ex_rd == i_id_rs2));     // ID stage reads rs2 from load
 
     //-------------------------------------------------------------------------
     // Stall and Bubble Control Signals
@@ -71,8 +72,8 @@ module hazard_unit (
     // - Insert a bubble (NOP) into the ID/EX register
 
     assign o_stall_pc    = load_use_hazard;
-    assign o_stall_if_id = load_use_hazard;
-    assign o_bubble_id_ex = load_use_hazard;
+    assign o_stall_if_id = load_use_hazard || i_rst_stall;
+    assign o_bubble_id_ex = load_use_hazard|| i_rst_stall;
 
 endmodule
 

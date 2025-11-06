@@ -41024,3 +41024,27 @@ run
 # [xxxxxxxx] 00000113 r[ 0]=xxxxxxxx r[xx]=xxxxxxxx w[ 2]=xxxxxxxx 
 # [xxxxxxxx] xxxxxxxx r[ x]=xxxxxxxx r[ x]=xxxxxxxx 
 # [xxxxxxxx] xxxxxxxx r[ x]=xxxxxxxx r[ x]=xxxxxxxx 
+# Compile of alu.v was successful.
+# Compile of alu_control.v was successful.
+# Compile of control.v was successful.
+# Compile of forwarding_unit.v was successful.
+# Compile of hart.v was successful.
+# Compile of hazard_unit.v was successful.
+# Compile of imm.v was successful.
+# Compile of rf.v was successful.
+# Compile of tb.v was successful.
+# Compile of branch_forwarding_unit.v was successful.
+# 10 compiles, 0 failed with no errors.
+# Compile of alu.v was successful.
+# Compile of alu_control.v was successful.
+# Compile of control.v was successful.
+# Compile of forwarding_unit.v was successful.
+# Compile of hart.v was successful.
+# Compile of hazard_unit.v was successful.
+# Compile of imm.v was successful.
+# Compile of rf.v was successful.
+# Compile of tb.v was successful.
+# Compile of branch_forwarding_unit.v was successful.
+# 10 compiles, 0 failed with no errors.
+# End time: 18:27:39 on Nov 05,2025, Elapsed time: 2:34:03
+# Errors: 0, Warnings: 4
