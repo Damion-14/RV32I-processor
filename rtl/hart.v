@@ -121,14 +121,9 @@ module hart #(
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
     assign o_imem_raddr = pc;              // Send current PC to instruction memory
 
-    // Next PC Selection (controlled by ID stage branch/jump decisions)
-    assign next_pc = is_jalr_id ? jalr_target_id :                 // JALR: rs1 + imm
-                     (is_jal_id | branch_taken_id) ? branch_target_id : // JAL/taken branch: PC + imm
-                     pc_plus_4;                                     // Default: PC + 4
-
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
-    always @(negedge i_clk) begin
+    always @(posedge i_clk) begin
         if (i_rst) begin
             pc <= RESET_ADDR;              // Reset PC to specified address
         end else if (!stall_pc) begin
@@ -139,6 +134,7 @@ module hart #(
 
     // Instruction Fetch from Memory
     wire [31:0] inst;                      // Current instruction word
+    wire flush_if_id;
     assign inst = i_imem_rdata;            // Direct connection to memory data
 
     reg  [31:0] if_id_inst;             // IF/ID pipeline register for instruction
@@ -146,12 +142,8 @@ module hart #(
     reg  [31:0] if_id_next_pc;          // IF/ID pipeline register for next PC
     reg         if_id_valid;            // IF/ID pipeline valid bit
 
-    // Flush signal - asserted when control flow change taken in ID stage
-    wire flush_if_id;
-    assign flush_if_id = (is_jalr_id | is_jal_id | branch_taken_id);
-
     // IF/ID Pipeline Register
-    always @(negedge i_clk) begin
+    always @(posedge i_clk) begin
         if (i_rst) begin
             if_id_inst    <= 32'b0;
             if_id_pc      <= 32'b0;
@@ -322,12 +314,20 @@ module hart #(
     wire branch_taken_id;                  // Branch is taken
     assign branch_taken_id = is_branch_id & branch_condition_id;
 
+    // Flush signal - asserted when control flow change taken in ID stage
+    assign flush_if_id = (is_jalr_id | is_jal_id | branch_taken_id);
+
     // Target address calculation
     wire [31:0] branch_target_id;          // Branch/JAL target address
     wire [31:0] jalr_target_id;            // JALR target address
 
     assign branch_target_id = if_id_pc + imm;                        // PC-relative for branches/JAL
     assign jalr_target_id = (branch_rs1_data + imm) & ~32'd1;       // Register+immediate, clear LSB
+
+    // Next PC Selection (controlled by ID stage branch/jump decisions)
+    assign next_pc = is_jalr_id ? jalr_target_id :                 // JALR: rs1 + imm
+                     (is_jal_id | branch_taken_id) ? branch_target_id : // JAL/taken branch: PC + imm
+                     pc_plus_4;                                     // Default: PC + 4
 
     //-------------------------------------------------------------------------
     // 2.6: ID/EX Pipeline Register
@@ -476,9 +476,9 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd),
-        .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
+        .i_mem_reg_write(ex_mem_reg_write),
         .i_wb_rd(mem_wb_rd),
-        .i_wb_reg_write(mem_wb_reg_write && mem_wb_valid),
+        .i_wb_reg_write(mem_wb_reg_write),
         .o_forward_a(forward_a),
         .o_forward_b(forward_b)
     );
@@ -608,7 +608,7 @@ module hart #(
             ex_mem_branch_target <= 32'b0;
         end else begin
             ex_mem_alu_result    <= alu_result;
-            ex_mem_rs2_data      <= id_ex_rs2_data;  // Original register value for retire interface
+            ex_mem_rs2_data      <= forwarded_rs2_data;  // Original register value for retire interface
             ex_mem_opcode        <= id_ex_opcode;
             ex_mem_pc_plus_4     <= id_ex_pc_plus_4;
             ex_mem_mem_read      <= id_ex_mem_read;
@@ -627,7 +627,7 @@ module hart #(
             ex_mem_is_branch     <= id_ex_is_branch;
             ex_mem_is_store      <= (id_ex_opcode == 7'b0100011);
             ex_mem_inst          <= id_ex_inst;
-            ex_mem_rs1_data      <= id_ex_rs1_data;  // Original register value for retire interface
+            ex_mem_rs1_data      <= forwarded_rs1_data;  // Original register value for retire interface
             ex_mem_valid         <= id_ex_valid;
             ex_mem_next_pc       <= (id_ex_is_jal | id_ex_is_jalr | id_ex_is_branch) ? id_ex_branch_target : id_ex_pc_plus_4;
             ex_mem_branch_target <= id_ex_branch_target;
@@ -740,7 +740,7 @@ module hart #(
     // mem_wb_reg_write already declared at top (reg for RF)
     reg  [31:0] mem_wb_pc_plus_4;        // MEM/WB pipeline register for PC + 4
     reg  [6:0]  mem_wb_opcode;           // MEM/WB pipeline register for opcode
-    reg  [31:0] mem_wb_imm;             // MEM/WB pipeline register for immediate value
+    reg  [31:0] mem_wb_imm;              // MEM/WB pipeline register for immediate value
     reg         mem_wb_is_jal;           // MEM/WB pipeline register for is_jal
     reg         mem_wb_is_jalr;          // MEM/WB pipeline register for is_jalr
     reg         mem_wb_is_branch;        // MEM/WB pipeline register for is_branch
