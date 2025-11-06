@@ -293,6 +293,8 @@ module hart #(
     branch_forwarding_unit branch_forwarder (
         .i_id_rs1(rs1),
         .i_id_rs2(rs2),
+        .i_ex_rd(id_ex_rd),
+        .i_ex_reg_write(id_ex_reg_write && id_ex_valid),
         .i_mem_rd(ex_mem_rd),
         .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
         .i_wb_rd(mem_wb_rd),
@@ -305,17 +307,27 @@ module hart #(
     wire [31:0] branch_rs1_data;           // rs1 data with forwarding for branches
     wire [31:0] branch_rs2_data;           // rs2 data with forwarding for branches
 
+    // Data to forward from EX stage: use ALU result (computed in this cycle)
+    wire [31:0] ex_forward_data;
+    assign ex_forward_data = alu_result;
+
     // Data to forward from MEM stage: use memory read data for loads, ALU result otherwise
     wire [31:0] mem_forward_data;
     assign mem_forward_data = ex_mem_mem_to_reg ? mem_read_data : ex_mem_alu_result;
 
-    // Forward from EX/MEM or MEM/WB stage to ID stage for branch operands
-    assign branch_rs1_data = (forward_branch_a == 2'b01) ? mem_forward_data :
-                             (forward_branch_a == 2'b10) ? rd_data :
+    // Forward from ID/EX, EX/MEM, or MEM/WB stage to ID stage for branch operands
+    // 00 = No forwarding (use register file data)
+    // 01 = Forward from ID/EX (EX stage)
+    // 10 = Forward from EX/MEM (MEM stage)
+    // 11 = Forward from MEM/WB (WB stage)
+    assign branch_rs1_data = (forward_branch_a == 2'b01) ? ex_forward_data :
+                             (forward_branch_a == 2'b10) ? mem_forward_data :
+                             (forward_branch_a == 2'b11) ? rd_data :
                              rs1_data;
 
-    assign branch_rs2_data = (forward_branch_b == 2'b01) ? mem_forward_data :
-                             (forward_branch_b == 2'b10) ? rd_data :
+    assign branch_rs2_data = (forward_branch_b == 2'b01) ? ex_forward_data :
+                             (forward_branch_b == 2'b10) ? mem_forward_data :
+                             (forward_branch_b == 2'b11) ? rd_data :
                              rs2_data;
 
     // Branch condition evaluation (using rs1 and rs2 with forwarding)
@@ -680,39 +692,55 @@ module hart #(
     //-------------------------------------------------------------------------
     // 4.0: Store-to-Load Forwarding (MEM-to-MEM)
     //-------------------------------------------------------------------------
-    // Detect when a load reads from the same address a store is writing to
-    // in the same cycle (both instructions in MEM stage simultaneously due to
-    // synchronous memory model)
+    // Detect when a load reads from the same address a store is writing to.
+    // Since memory is synchronous (writes take effect on clock edge), we need
+    // to forward store data when a load follows a store to the same address.
 
-    // Previous cycle's store information (need to register MEM stage outputs)
-    reg [31:0] prev_dmem_addr;
-    reg [31:0] prev_dmem_wdata;
-    reg [ 3:0] prev_dmem_mask;
-    reg        prev_dmem_wen;
+    // Previous cycle's store information
+    reg [31:0] prev_store_addr;
+    reg [31:0] prev_store_data_raw;  // Original rs2 data before shifting
+    reg [ 3:0] prev_store_mask;
+    reg        prev_store_valid;
+    reg [ 2:0] prev_store_funct3;    // Store size (SB/SH/SW)
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            prev_dmem_addr  <= 32'b0;
-            prev_dmem_wdata <= 32'b0;
-            prev_dmem_mask  <= 4'b0;
-            prev_dmem_wen   <= 1'b0;
+            prev_store_addr     <= 32'b0;
+            prev_store_data_raw <= 32'b0;
+            prev_store_mask     <= 4'b0;
+            prev_store_valid    <= 1'b0;
+            prev_store_funct3   <= 3'b0;
         end else begin
-            prev_dmem_addr  <= o_dmem_addr;
-            prev_dmem_wdata <= o_dmem_wdata;
-            prev_dmem_mask  <= o_dmem_mask;
-            prev_dmem_wen   <= o_dmem_wen;
+            prev_store_addr     <= o_dmem_addr;
+            prev_store_data_raw <= ex_mem_rs2_data;  // Store the original unshifted data
+            prev_store_mask     <= o_dmem_mask;
+            prev_store_valid    <= o_dmem_wen;
+            prev_store_funct3   <= ex_mem_funct3;
         end
     end
 
     // Detect store-to-load forwarding condition
     wire mem_to_mem_forward;
-    assign mem_to_mem_forward = prev_dmem_wen &&              // Previous instruction was a store
+    assign mem_to_mem_forward = prev_store_valid &&           // Previous instruction was a store
                                 ex_mem_mem_read &&            // Current instruction is a load
-                                (prev_dmem_addr == o_dmem_addr); // Same aligned address
+                                (prev_store_addr == o_dmem_addr); // Same aligned address
 
-    // Use forwarded data when applicable
+    // Reconstruct the memory word with forwarded store data
+    // We need to merge the stored bytes into the memory word based on the store mask
     wire [31:0] dmem_rdata_or_forwarded;
-    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? prev_dmem_wdata : i_dmem_rdata;
+    wire [31:0] forwarded_store_word;
+
+    // Reconstruct what the memory word looks like after the store
+    // based on which bytes were written (indicated by prev_store_mask)
+    // Each byte of the memory word comes from either the stored data or existing memory
+    assign forwarded_store_word = {
+        prev_store_mask[3] ? prev_store_data_raw[31:24] : i_dmem_rdata[31:24],
+        prev_store_mask[2] ? prev_store_data_raw[23:16] : i_dmem_rdata[23:16],
+        prev_store_mask[1] ? prev_store_data_raw[15:8]  : i_dmem_rdata[15:8],
+        prev_store_mask[0] ? prev_store_data_raw[7:0]   : i_dmem_rdata[7:0]
+    };
+
+    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? forwarded_store_word : i_dmem_rdata;
 
     //-------------------------------------------------------------------------
     // 4.1: Memory Address Calculation and Alignment
@@ -806,7 +834,8 @@ module hart #(
     //-------------------------------------------------------------------------
     // 4.4: MEM/WB Pipeline Register
     //-------------------------------------------------------------------------
-    reg  [31:0] mem_wb_mem_read_data;     // MEM/WB pipeline register for memory read data
+    reg  [31:0] mem_wb_mem_read_data;     // MEM/WB pipeline register for memory read data (processed)
+    reg  [31:0] mem_wb_mem_read_data_raw; // MEM/WB pipeline register for raw memory data (for retire interface)
     reg  [31:0] mem_wb_alu_result;        // MEM/WB pipeline register for ALU result
     // mem_wb_rd already declared at top
     reg         mem_wb_mem_to_reg;        // MEM/WB pipeline register for memory to register select
@@ -837,67 +866,69 @@ module hart #(
     // MEM/WB Pipeline Register
     always @(posedge i_clk) begin
         if (i_rst) begin
-            mem_wb_mem_read_data  <= 32'b0;
-            mem_wb_alu_result     <= 32'b0;
-            mem_wb_rd             <= 5'b0;
-            mem_wb_mem_to_reg     <= 1'b0;
-            mem_wb_reg_write      <= 1'b0;
-            mem_wb_pc_plus_4      <= 32'b0;
-            mem_wb_opcode         <= 7'b0010011;  // I-type for NOP
-            mem_wb_imm            <= 32'b0;
-            mem_wb_is_jal         <= 1'b0;
-            mem_wb_is_jalr        <= 1'b0;
-            mem_wb_is_branch      <= 1'b0;
-            mem_wb_mem_read       <= 1'b0;
-            mem_wb_mem_write      <= 1'b0;
-            mem_wb_funct3         <= 3'b0;
-            mem_wb_rs1            <= 5'b0;
-            mem_wb_rs2            <= 5'b0;
-            mem_wb_rs1_data       <= 32'b0;
-            mem_wb_rs2_data       <= 32'b0;
-            mem_wb_pc             <= 32'b0;
-            mem_wb_inst           <= 32'h00000013;  // NOP
-            mem_wb_is_store       <= 1'b0;
-            mem_wb_unaligned_pc   <= 1'b0;
-            mem_wb_unaligned_mem  <= 1'b0;
-            mem_wb_valid          <= 1'b0;
-            mem_wb_dmem_addr      <= 32'b0;
-            mem_wb_dmem_mask      <= 4'b0;
-            mem_wb_dmem_wdata     <= 32'b0;
-            mem_wb_next_pc        <= 32'b0;
+            mem_wb_mem_read_data      <= 32'b0;
+            mem_wb_mem_read_data_raw  <= 32'b0;
+            mem_wb_alu_result         <= 32'b0;
+            mem_wb_rd                 <= 5'b0;
+            mem_wb_mem_to_reg         <= 1'b0;
+            mem_wb_reg_write          <= 1'b0;
+            mem_wb_pc_plus_4          <= 32'b0;
+            mem_wb_opcode             <= 7'b0010011;  // I-type for NOP
+            mem_wb_imm                <= 32'b0;
+            mem_wb_is_jal             <= 1'b0;
+            mem_wb_is_jalr            <= 1'b0;
+            mem_wb_is_branch          <= 1'b0;
+            mem_wb_mem_read           <= 1'b0;
+            mem_wb_mem_write          <= 1'b0;
+            mem_wb_funct3             <= 3'b0;
+            mem_wb_rs1                <= 5'b0;
+            mem_wb_rs2                <= 5'b0;
+            mem_wb_rs1_data           <= 32'b0;
+            mem_wb_rs2_data           <= 32'b0;
+            mem_wb_pc                 <= 32'b0;
+            mem_wb_inst               <= 32'h00000013;  // NOP
+            mem_wb_is_store           <= 1'b0;
+            mem_wb_unaligned_pc       <= 1'b0;
+            mem_wb_unaligned_mem      <= 1'b0;
+            mem_wb_valid              <= 1'b0;
+            mem_wb_dmem_addr          <= 32'b0;
+            mem_wb_dmem_mask          <= 4'b0;
+            mem_wb_dmem_wdata         <= 32'b0;
+            mem_wb_next_pc            <= 32'b0;
         end else begin
-            mem_wb_mem_read_data  <= mem_read_data;
-            mem_wb_alu_result     <= ex_mem_alu_result;
-            mem_wb_rd             <= ex_mem_rd;
-            mem_wb_mem_to_reg     <= ex_mem_mem_to_reg;
-            mem_wb_reg_write      <= ex_mem_reg_write;
-            mem_wb_pc_plus_4      <= ex_mem_pc_plus_4;
-            mem_wb_opcode         <= ex_mem_opcode;
-            mem_wb_imm            <= ex_mem_imm;
-            mem_wb_is_jal         <= ex_mem_is_jal;
-            mem_wb_is_jalr        <= ex_mem_is_jalr;
-            mem_wb_is_branch      <= ex_mem_is_branch;
-            mem_wb_mem_read       <= ex_mem_mem_read;
-            mem_wb_mem_write      <= ex_mem_mem_write;
-            mem_wb_funct3         <= ex_mem_funct3;
-            mem_wb_rs1            <= ex_mem_rs1;
-            mem_wb_rs2            <= ex_mem_rs2;
-            mem_wb_rs1_data       <= ex_mem_rs1_data;
-            mem_wb_rs2_data       <= ex_mem_rs2_data;
-            mem_wb_pc             <= ex_mem_pc;
-            mem_wb_inst           <= ex_mem_inst;
-            mem_wb_is_store       <= ex_mem_is_store;
+            mem_wb_mem_read_data      <= mem_read_data;
+            mem_wb_mem_read_data_raw  <= dmem_rdata_or_forwarded;  // Raw memory word for retire interface
+            mem_wb_alu_result         <= ex_mem_alu_result;
+            mem_wb_rd                 <= ex_mem_rd;
+            mem_wb_mem_to_reg         <= ex_mem_mem_to_reg;
+            mem_wb_reg_write          <= ex_mem_reg_write;
+            mem_wb_pc_plus_4          <= ex_mem_pc_plus_4;
+            mem_wb_opcode             <= ex_mem_opcode;
+            mem_wb_imm                <= ex_mem_imm;
+            mem_wb_is_jal             <= ex_mem_is_jal;
+            mem_wb_is_jalr            <= ex_mem_is_jalr;
+            mem_wb_is_branch          <= ex_mem_is_branch;
+            mem_wb_mem_read           <= ex_mem_mem_read;
+            mem_wb_mem_write          <= ex_mem_mem_write;
+            mem_wb_funct3             <= ex_mem_funct3;
+            mem_wb_rs1                <= ex_mem_rs1;
+            mem_wb_rs2                <= ex_mem_rs2;
+            mem_wb_rs1_data           <= ex_mem_rs1_data;
+            mem_wb_rs2_data           <= ex_mem_rs2_data;
+            mem_wb_pc                 <= ex_mem_pc;
+            mem_wb_inst               <= ex_mem_inst;
+            mem_wb_is_store           <= ex_mem_is_store;
             // Check for unaligned branch/jump target in MEM stage
-            mem_wb_unaligned_pc   <= (ex_mem_is_jal | ex_mem_is_jalr | ex_mem_is_branch) &&
-                                     (ex_mem_branch_target[1:0] != 2'b00);
-            mem_wb_unaligned_mem  <= (ex_mem_mem_read | ex_mem_mem_write) &&
-                                     ((ex_mem_funct3[1:0] == 2'b10 && dmem_addr_unaligned[1:0] != 2'b00) ||
-                                      (ex_mem_funct3[1:0] == 2'b01 && dmem_addr_unaligned[0] != 1'b0));
-            mem_wb_valid          <= ex_mem_valid;
-            mem_wb_dmem_addr      <= o_dmem_addr;
-            mem_wb_dmem_mask      <= o_dmem_mask;
-            mem_wb_dmem_wdata     <= o_dmem_wdata;
-            mem_wb_next_pc        <= ex_mem_next_pc;
+            mem_wb_unaligned_pc       <= (ex_mem_is_jal | ex_mem_is_jalr | ex_mem_is_branch) &&
+                                         (ex_mem_branch_target[1:0] != 2'b00);
+            mem_wb_unaligned_mem      <= (ex_mem_mem_read | ex_mem_mem_write) &&
+                                         ((ex_mem_funct3[1:0] == 2'b10 && dmem_addr_unaligned[1:0] != 2'b00) ||
+                                          (ex_mem_funct3[1:0] == 2'b01 && dmem_addr_unaligned[0] != 1'b0));
+            mem_wb_valid              <= ex_mem_valid;
+            mem_wb_dmem_addr          <= o_dmem_addr;
+            mem_wb_dmem_mask          <= o_dmem_mask;
+            mem_wb_dmem_wdata         <= o_dmem_wdata;
+            mem_wb_next_pc            <= ex_mem_next_pc;
         end
     end
 
@@ -979,7 +1010,7 @@ module hart #(
     assign o_retire_dmem_wen = mem_wb_mem_write;               // Data memory write enable
     assign o_retire_dmem_mask = mem_wb_dmem_mask;              // Data memory byte mask
     assign o_retire_dmem_wdata = mem_wb_dmem_wdata;            // Data memory write data
-    assign o_retire_dmem_rdata = mem_wb_mem_read_data;         // Data memory read data
+    assign o_retire_dmem_rdata = mem_wb_mem_read_data_raw;     // Data memory read data (raw, before processing)
 
 endmodule
 
