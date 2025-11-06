@@ -99,7 +99,7 @@ module hart_tb ();
 
         // Load the test program into memory at address 0.
         $display("Loading program.");
-        $readmemh("/filespace/d/dhuppert/RV32I-processor/tb/06memory.mem", imem);
+        $readmemh("/filespace/d/dhuppert/RV32I-processor/tb/exhaustive_nobranch.mem", imem);
 
         // Reset the dut.
         $display("Resetting hart.");

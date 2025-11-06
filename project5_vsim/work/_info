@@ -100,6 +100,7 @@ Z11 o-quiet -auto_acc_if_foreign -work work +acc
 R9
 n@_opt1
 R10
+R3
 T_opt2
 !s110 1762387877
 V226ZO`7MK5Kzc;b0cBNQi1
@@ -117,7 +118,7 @@ R10
 R3
 valu
 2/filespace/d/dhuppert/RV32I-processor/rtl/alu.v
-Z12 !s110 1762452198
+Z12 !s110 1762454617
 !i10b 1
 !s100 <e8KhGn`1G[Q[;iz:n=Q>1
 IZz1a>OnP:T<g>lL_cIKzX2
@@ -125,14 +126,14 @@ Z13 d/filespace/d/dhuppert/RV32I-processor/project5_vsim
 w1762447166
 8/filespace/d/dhuppert/RV32I-processor/rtl/alu.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/alu.v
-!i122 227
+!i122 249
 L0 8 79
 Z14 VDg1SIo80bB@j0V0VzS_@n1
 Z15 OE;L;2024.3_2;79
 r1
 !s85 0
 31
-Z16 !s108 1762452198.000000
+Z16 !s108 1762454617.000000
 !s107 /filespace/d/dhuppert/RV32I-processor/rtl/alu.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/rtl/alu.v|
 !i113 0
@@ -148,7 +149,7 @@ R13
 w1761080098
 8/filespace/d/dhuppert/RV32I-processor/rtl/alu_control.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/alu_control.v
-!i122 228
+!i122 250
 L0 22 168
 R14
 R15
@@ -163,22 +164,22 @@ R17
 R9
 vbranch_forwarding_unit
 2/filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v
-R12
+Z18 !s110 1762454618
 !i10b 1
-!s100 b0Y>a<C=gHR;X_?=bPka<2
-I;I3F45eM22kPH[IQ>mfHD2
+!s100 Qo8NEB`16?fXXd@VMTNUa2
+I`ZC?L;IQz[J5RBleMIlXV0
 R13
-w1762447072
+w1762454424
 8/filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v
-!i122 236
-L0 23 76
+!i122 257
+L0 24 107
 R14
 R15
 r1
 !s85 0
 31
-R16
+Z19 !s108 1762454618.000000
 !s107 /filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v|
 !i113 0
@@ -194,7 +195,7 @@ R13
 w1762447131
 8/filespace/d/dhuppert/RV32I-processor/rtl/control.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/control.v
-!i122 229
+!i122 251
 L0 24 162
 R14
 R15
@@ -217,7 +218,7 @@ R13
 w1762447141
 8/filespace/d/dhuppert/RV32I-processor/rtl/forwarding_unit.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/forwarding_unit.v
-!i122 230
+!i122 252
 L0 22 76
 R14
 R15
@@ -232,22 +233,22 @@ R17
 R9
 vhart
 2/filespace/d/dhuppert/RV32I-processor/rtl/hart.v
-!s110 1762452258
+!s110 1762454872
 !i10b 1
-!s100 >GmdF_1QmoX6HPZ=eif=H1
-IH4Xf]W]2YnBAPbjdB0oC70
+!s100 1:HBeA4k<ghYCH?TNo5X02
+I@:B8DZKe1A]ofzJ>6SziR0
 R13
-w1762452243
+w1762454868
 8/filespace/d/dhuppert/RV32I-processor/rtl/hart.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/hart.v
-!i122 237
-L0 23 962
+!i122 258
+L0 23 993
 R14
 R15
 r1
 !s85 0
 31
-!s108 1762452258.000000
+!s108 1762454872.000000
 !s107 /filespace/d/dhuppert/RV32I-processor/rtl/hart.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/rtl/hart.v|
 !i113 0
@@ -255,22 +256,22 @@ R17
 R9
 vhart_tb
 2/filespace/d/dhuppert/RV32I-processor/tb/tb.v
-R12
+R18
 !i10b 1
-!s100 RoYTjBA^FAeM=]197ChdY2
-Ic6e>@Q>n`PRAh7hi03dLY1
+!s100 hi[MX_2Dizd9><cAENc`W1
+Id2]E>i5dV]dE[^LInkkV20
 R13
-w1762448412
+w1762454462
 8/filespace/d/dhuppert/RV32I-processor/tb/tb.v
 F/filespace/d/dhuppert/RV32I-processor/tb/tb.v
-!i122 235
+!i122 256
 L0 1 163
 R14
 R15
 r1
 !s85 0
 31
-R16
+R19
 !s107 /filespace/d/dhuppert/RV32I-processor/tb/tb.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/tb/tb.v|
 !i113 0
@@ -278,7 +279,7 @@ R17
 R9
 vhazard_unit
 2/filespace/d/dhuppert/RV32I-processor/rtl/hazard_unit.v
-R12
+R18
 !i10b 1
 !s100 <:^Lf6OGUm]KW@Pef=6<@3
 IdCZHFO2h=98PIb<CfBE:51
@@ -286,7 +287,7 @@ R13
 w1762447152
 8/filespace/d/dhuppert/RV32I-processor/rtl/hazard_unit.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/hazard_unit.v
-!i122 232
+!i122 253
 L0 20 59
 R14
 R15
@@ -301,22 +302,22 @@ R17
 R9
 vimm
 2/filespace/d/dhuppert/RV32I-processor/rtl/imm.v
-R12
+R18
 !i10b 1
 !s100 Z[@R:bQ[9i;Kcam2a47=90
 IEHmM`=7:K9PS1II4T<@;m3
 R13
-Z18 w1761001607
+Z20 w1761001607
 8/filespace/d/dhuppert/RV32I-processor/rtl/imm.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/imm.v
-!i122 233
+!i122 254
 L0 7 37
 R14
 R15
 r1
 !s85 0
 31
-R16
+R19
 !s107 /filespace/d/dhuppert/RV32I-processor/rtl/imm.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/rtl/imm.v|
 !i113 0
@@ -324,22 +325,22 @@ R17
 R9
 vrf
 2/filespace/d/dhuppert/RV32I-processor/rtl/rf.v
-R12
+R18
 !i10b 1
 !s100 <[hWQ`5O;HJ]8kJ6kXhSJ3
 Ie1C@kZjogh^=X;W1mT2Pg2
 R13
-R18
+R20
 8/filespace/d/dhuppert/RV32I-processor/rtl/rf.v
 F/filespace/d/dhuppert/RV32I-processor/rtl/rf.v
-!i122 234
+!i122 255
 L0 12 70
 R14
 R15
 r1
 !s85 0
 31
-R16
+R19
 !s107 /filespace/d/dhuppert/RV32I-processor/rtl/rf.v|
 !s90 -reportprogress|300|-work|work|-vopt|-stats=none|/filespace/d/dhuppert/RV32I-processor/rtl/rf.v|
 !i113 0
