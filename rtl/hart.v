@@ -105,6 +105,8 @@ module hart #(
     reg         mem_wb_reg_write;
     reg         mem_wb_valid;            // MEM/WB pipeline valid bit
 
+    reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
+    wire [31:0] mem_read_data;
 
     //=========================================================================
     // STAGE 1: INSTRUCTION FETCH (IF)
@@ -600,7 +602,6 @@ module hart #(
     // ex_mem_rd already declared at top
     reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
     reg         ex_mem_mem_write;        // EX/MEM pipeline register for memory write enable
-    reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
     // ex_mem_reg_write already declared at top
     reg  [6:0]  ex_mem_opcode;           // EX/MEM pipeline register for opcode
     reg  [31:0] ex_mem_pc_plus_4;        // EX/MEM pipeline register for PC + 4
@@ -800,7 +801,6 @@ module hart #(
         endcase
     end
 
-    wire [31:0] mem_read_data;
     assign mem_read_data = load_data_processed;
 
     //-------------------------------------------------------------------------
