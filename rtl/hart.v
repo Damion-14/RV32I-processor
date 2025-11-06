@@ -712,7 +712,7 @@ module hart #(
             prev_store_funct3   <= 3'b0;
         end else begin
             prev_store_addr     <= o_dmem_addr;
-            prev_store_data_raw <= ex_mem_rs2_data;  // Store the original unshifted data
+            prev_store_data_raw <= o_dmem_wdata;  // Store the shifted data
             prev_store_mask     <= o_dmem_mask;
             prev_store_valid    <= o_dmem_wen;
             prev_store_funct3   <= ex_mem_funct3;
@@ -943,8 +943,59 @@ module hart #(
     wire is_auipc = (mem_wb_opcode == 7'b0010111);            // Add Upper Immediate to PC
     wire is_store = (mem_wb_opcode == 7'b0100011);            // Store instructions
 
+    // Reprocess current memory data for retiring load instructions
+    // This ensures rd_data matches o_retire_dmem_rdata (i_dmem_rdata)
+    wire [1:0] wb_byte_offset;
+    assign wb_byte_offset = mem_wb_dmem_addr[1:0];
+
+    reg [31:0] wb_load_data_processed;
+    always @(*) begin
+        case (mem_wb_funct3)
+            // LB: Load Byte (sign-extended)
+            3'b000: begin
+                case (wb_byte_offset)
+                    2'b00: wb_load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
+                    2'b01: wb_load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
+                    2'b10: wb_load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
+                    default: wb_load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
+                endcase
+            end
+
+            // LH: Load Half-word (sign-extended)
+            3'b001: begin
+                case (wb_byte_offset[1])
+                    1'b0: wb_load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
+                    default: wb_load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
+                endcase
+            end
+
+            // LW: Load Word (no extension needed)
+            3'b010: wb_load_data_processed = i_dmem_rdata;
+
+            // LBU: Load Byte Unsigned (zero-extended)
+            3'b100: begin
+                case (wb_byte_offset)
+                    2'b00: wb_load_data_processed = {24'b0, i_dmem_rdata[7:0]};
+                    2'b01: wb_load_data_processed = {24'b0, i_dmem_rdata[15:8]};
+                    2'b10: wb_load_data_processed = {24'b0, i_dmem_rdata[23:16]};
+                    default: wb_load_data_processed = {24'b0, i_dmem_rdata[31:24]};
+                endcase
+            end
+
+            // LHU: Load Half-word Unsigned (zero-extended)
+            3'b101: begin
+                case (wb_byte_offset[1])
+                    1'b0: wb_load_data_processed = {16'b0, i_dmem_rdata[15:0]};
+                    default: wb_load_data_processed = {16'b0, i_dmem_rdata[31:16]};
+                endcase
+            end
+
+            default: wb_load_data_processed = i_dmem_rdata;    // Default to word load
+        endcase
+    end
+
     // Register Write Data Selection
-    assign rd_data = mem_wb_mem_to_reg ? mem_wb_mem_read_data :       // Load instructions: memory data
+    assign rd_data = mem_wb_mem_to_reg ? wb_load_data_processed :       // Load instructions: reprocessed current memory data
                      (mem_wb_is_jal | mem_wb_is_jalr) ? mem_wb_pc_plus_4 :   // JAL/JALR: return address (PC+4)
                      is_lui ? mem_wb_imm :                     // LUI: immediate value
                      is_auipc ? (mem_wb_pc + mem_wb_imm) :            // AUIPC: PC + immediate
@@ -1010,7 +1061,7 @@ module hart #(
     assign o_retire_dmem_wen = mem_wb_mem_write;               // Data memory write enable
     assign o_retire_dmem_mask = mem_wb_dmem_mask;              // Data memory byte mask
     assign o_retire_dmem_wdata = mem_wb_dmem_wdata;            // Data memory write data
-    assign o_retire_dmem_rdata = mem_wb_mem_read_data_raw;     // Data memory read data (raw, before processing)
+    assign o_retire_dmem_rdata = i_dmem_rdata;                 // Data memory read data (current cycle, reflects completed writes)
 
 endmodule
 
