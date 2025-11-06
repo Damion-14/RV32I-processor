@@ -673,6 +673,43 @@ module hart #(
     // It also handles the necessary data shifting and masking operations.
 
     //-------------------------------------------------------------------------
+    // 4.0: Store-to-Load Forwarding (MEM-to-MEM)
+    //-------------------------------------------------------------------------
+    // Detect when a load reads from the same address a store is writing to
+    // in the same cycle (both instructions in MEM stage simultaneously due to
+    // synchronous memory model)
+
+    // Previous cycle's store information (need to register MEM stage outputs)
+    reg [31:0] prev_dmem_addr;
+    reg [31:0] prev_dmem_wdata;
+    reg [ 3:0] prev_dmem_mask;
+    reg        prev_dmem_wen;
+
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            prev_dmem_addr  <= 32'b0;
+            prev_dmem_wdata <= 32'b0;
+            prev_dmem_mask  <= 4'b0;
+            prev_dmem_wen   <= 1'b0;
+        end else begin
+            prev_dmem_addr  <= o_dmem_addr;
+            prev_dmem_wdata <= o_dmem_wdata;
+            prev_dmem_mask  <= o_dmem_mask;
+            prev_dmem_wen   <= o_dmem_wen;
+        end
+    end
+
+    // Detect store-to-load forwarding condition
+    wire mem_to_mem_forward;
+    assign mem_to_mem_forward = prev_dmem_wen &&              // Previous instruction was a store
+                                ex_mem_mem_read &&            // Current instruction is a load
+                                (prev_dmem_addr == o_dmem_addr); // Same aligned address
+
+    // Use forwarded data when applicable
+    wire [31:0] dmem_rdata_or_forwarded;
+    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? prev_dmem_wdata : i_dmem_rdata;
+
+    //-------------------------------------------------------------------------
     // 4.1: Memory Address Calculation and Alignment
     //-------------------------------------------------------------------------
     wire [31:0] dmem_addr_unaligned;       // Unaligned memory address from ALU
@@ -719,43 +756,43 @@ module hart #(
             // LB: Load Byte (sign-extended)
             3'b000: begin
                 case (byte_offset)
-                    2'b00: load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
-                    2'b01: load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
-                    2'b10: load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
-                    default: load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
+                    2'b00: load_data_processed = {{24{dmem_rdata_or_forwarded[7]}},  dmem_rdata_or_forwarded[7:0]};
+                    2'b01: load_data_processed = {{24{dmem_rdata_or_forwarded[15]}}, dmem_rdata_or_forwarded[15:8]};
+                    2'b10: load_data_processed = {{24{dmem_rdata_or_forwarded[23]}}, dmem_rdata_or_forwarded[23:16]};
+                    default: load_data_processed = {{24{dmem_rdata_or_forwarded[31]}}, dmem_rdata_or_forwarded[31:24]};
                 endcase
             end
 
             // LH: Load Half-word (sign-extended)
             3'b001: begin
                 case (byte_offset[1])
-                    1'b0: load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
-                    default: load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
+                    1'b0: load_data_processed = {{16{dmem_rdata_or_forwarded[15]}}, dmem_rdata_or_forwarded[15:0]};
+                    default: load_data_processed = {{16{dmem_rdata_or_forwarded[31]}}, dmem_rdata_or_forwarded[31:16]};
                 endcase
             end
 
             // LW: Load Word (no extension needed)
-            3'b010: load_data_processed = i_dmem_rdata;
+            3'b010: load_data_processed = dmem_rdata_or_forwarded;
 
             // LBU: Load Byte Unsigned (zero-extended)
             3'b100: begin
                 case (byte_offset)
-                    2'b00: load_data_processed = {24'b0, i_dmem_rdata[7:0]};
-                    2'b01: load_data_processed = {24'b0, i_dmem_rdata[15:8]};
-                    2'b10: load_data_processed = {24'b0, i_dmem_rdata[23:16]};
-                    default: load_data_processed = {24'b0, i_dmem_rdata[31:24]};
+                    2'b00: load_data_processed = {24'b0, dmem_rdata_or_forwarded[7:0]};
+                    2'b01: load_data_processed = {24'b0, dmem_rdata_or_forwarded[15:8]};
+                    2'b10: load_data_processed = {24'b0, dmem_rdata_or_forwarded[23:16]};
+                    default: load_data_processed = {24'b0, dmem_rdata_or_forwarded[31:24]};
                 endcase
             end
 
             // LHU: Load Half-word Unsigned (zero-extended)
             3'b101: begin
                 case (byte_offset[1])
-                    1'b0: load_data_processed = {16'b0, i_dmem_rdata[15:0]};
-                    default: load_data_processed = {16'b0, i_dmem_rdata[31:16]};
+                    1'b0: load_data_processed = {16'b0, dmem_rdata_or_forwarded[15:0]};
+                    default: load_data_processed = {16'b0, dmem_rdata_or_forwarded[31:16]};
                 endcase
             end
 
-            default: load_data_processed = i_dmem_rdata;    // Default to word load
+            default: load_data_processed = dmem_rdata_or_forwarded;    // Default to word load
         endcase
     end
 
