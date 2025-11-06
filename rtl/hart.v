@@ -297,8 +297,8 @@ module hart #(
     branch_forwarding_unit branch_forwarder (
         .i_id_rs1(rs1),
         .i_id_rs2(rs2),
-        .i_ex_rd1(id_ex_rd),
-        .i_ex_reg_write1(id_ex_reg_write && id_ex_valid),
+        .i_ex_rd(id_ex_rd),
+        .i_ex_reg_write(id_ex_reg_write && id_ex_valid),
         .i_mem_rd(ex_mem_rd),
         .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
         .i_wb_rd(mem_wb_rd),

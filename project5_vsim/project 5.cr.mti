@@ -12,6 +12,13 @@ QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
 Top level modules:
 	ctl
 
+} {} {}} /filespace/d/dhuppert/RV32I-processor/tb/tb.v {1 {vlog -work work -vopt -stats=none /filespace/d/dhuppert/RV32I-processor/tb/tb.v
+QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
+-- Compiling module hart_tb
+
+Top level modules:
+	hart_tb
+
 } {} {}} /filespace/d/dhuppert/RV32I-processor/rtl/forwarding_unit.v {1 {vlog -work work -vopt -stats=none /filespace/d/dhuppert/RV32I-processor/rtl/forwarding_unit.v
 QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
 -- Compiling module forwarding_unit
@@ -32,6 +39,13 @@ QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
 
 Top level modules:
 	alu_ctl
+
+} {} {}} /filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v {1 {vlog -work work -vopt -stats=none /filespace/d/dhuppert/RV32I-processor/rtl/branch_forwarding_unit.v
+QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
+-- Compiling module branch_forwarding_unit
+
+Top level modules:
+	branch_forwarding_unit
 
 } {} {}} /filespace/d/dhuppert/RV32I-processor/rtl/imm.v {1 {vlog -work work -vopt -stats=none /filespace/d/dhuppert/RV32I-processor/rtl/imm.v
 QuestaSim vlog 2024.3_2 Compiler 2024.11 Nov 25 2024
