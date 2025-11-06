@@ -106,7 +106,11 @@ module hart #(
     reg         mem_wb_valid;            // MEM/WB pipeline valid bit
 
     reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
+    wire [31:0] alu_result;                // ALU output result
     wire [31:0] mem_read_data;
+    reg         id_ex_valid;           // ID/EX pipeline valid bit
+    reg  [4:0]  id_ex_rd;               // ID/EX pipeline register for rd address
+    reg         id_ex_reg_write;        // ID/EX pipeline register for register write enable
 
     //=========================================================================
     // STAGE 1: INSTRUCTION FETCH (IF)
@@ -388,20 +392,17 @@ module hart #(
     reg  [31:0] id_ex_imm;              // ID/EX pipeline register for immediate
     reg  [4:0]  id_ex_rs1;              // ID/EX pipeline register for rs1 address
     reg  [4:0]  id_ex_rs2;              // ID/EX pipeline register for rs2 address
-    reg  [4:0]  id_ex_rd;               // ID/EX pipeline register for rd address
     reg  [1:0]  id_ex_alu_op;           // ID/EX pipeline register for ALU operation
     reg  [2:0]  id_ex_bj_type;          // ID/EX pipeline register for branch/jump type
     reg         id_ex_alu_src;          // ID/EX pipeline register for ALU source select
     reg         id_ex_mem_read;         // ID/EX pipeline register for memory read enable
     reg         id_ex_mem_write;        // ID/EX pipeline register for memory write enable
     reg         id_ex_mem_to_reg;       // ID/EX pipeline register for memory to register select
-    reg         id_ex_reg_write;        // ID/EX pipeline register for register write enable
     reg  [6:0]  id_ex_opcode;           // ID/EX pipeline register for opcode
     reg  [31:0] id_ex_pc_plus_4;        // ID/EX pipeline register for PC + 4
     reg  [2:0]  id_ex_funct3;          // ID/EX pipeline register for funct3
     reg  [6:0]  id_ex_funct7;          // ID/EX pipeline register for funct7
     reg  [31:0] id_ex_inst;            // ID/EX pipeline register for instruction
-    reg         id_ex_valid;           // ID/EX pipeline valid bit
     reg         id_ex_is_jal;          // ID/EX pipeline register for is_jal
     reg         id_ex_is_jalr;         // ID/EX pipeline register for is_jalr
     reg         id_ex_is_branch;       // ID/EX pipeline register for is_branch
@@ -584,7 +585,6 @@ module hart #(
     //-------------------------------------------------------------------------
     // Performs arithmetic and logical operations on two 32-bit operands
     wire [31:0] alu_op1, alu_op2;          // ALU input operands
-    wire [31:0] alu_result;                // ALU output result
     wire alu_eq;                           // Operands are equal
     wire alu_slt;                          // Operand 1 < Operand 2 (signed/unsigned)
 
