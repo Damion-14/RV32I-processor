@@ -1,1 +1,0 @@
-/cae/apps/data/mentor-2024/questasim/linux/VisualizerRls/bin/viscom -nolock -quiet -jmem_size 393216 work.hart_tb -quiet -auto_acc_if_foreign -work work -allow_unnamed -o _opt -id 1-000ae431a4f1-690bc1a3-42773-1f4fc3

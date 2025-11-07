@@ -126,8 +126,23 @@ module hart #(
     wire [31:0] next_pc;                   // Next PC value (from ID stage)
     wire        rst_stall;
 
+    // The testbench models imem as synchronous (1-cycle latency). The instruction
+    // observed on 'inst' corresponds to the address presented on 'o_imem_raddr'
+    // in the previous cycle. Track that address so we can align IF/ID.pc with
+    // the arriving instruction correctly.
+    reg [31:0] fetch_pc;                   // PC used for the instruction arriving this cycle
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            fetch_pc <= RESET_ADDR;
+        end else if (!stall_pc) begin
+            fetch_pc <= pc;                // Address driven to imem this cycle
+        end else begin
+            fetch_pc <= fetch_pc;          // Hold during stall
+        end
+    end
+
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
-        assign o_imem_raddr = pc;              // Send current PC to instruction memory
+    assign o_imem_raddr = (stall_pc) ? fetch_pc : pc;              // Send current PC to instruction memory
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
@@ -147,20 +162,9 @@ module hart #(
     reg flush_if_id_d;
     assign inst = i_imem_rdata;            // Instruction returned from (synchronous) imem
 
-    // The testbench models imem as synchronous (1-cycle latency). The instruction
-    // observed on 'inst' corresponds to the address presented on 'o_imem_raddr'
-    // in the previous cycle. Track that address so we can align IF/ID.pc with
-    // the arriving instruction correctly.
-    reg [31:0] fetch_pc;                   // PC used for the instruction arriving this cycle
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            fetch_pc <= RESET_ADDR;
-        end else if (!stall_pc) begin
-            fetch_pc <= pc;                // Address driven to imem this cycle
-        end else begin
-            fetch_pc <= fetch_pc;          // Hold during stall
-        end
-    end
+    
+
+    
 
     reg  [31:0] if_id_inst;             // IF/ID pipeline register for instruction
     reg  [31:0] if_id_pc;               // IF/ID pipeline register for PC
@@ -174,18 +178,18 @@ module hart #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
-        end else if (stall_if_id) begin
-            // Hold current values during stall; preserve valid to avoid dropping the instruction
-            if_id_inst    <= if_id_inst;
-            if_id_pc      <= if_id_pc;
-            if_id_next_pc <= if_id_next_pc;
-            if_id_valid   <= if_id_valid;
         end else if (flush_if_id | flush_if_id_d) begin
             // Flush pipeline: insert bubble (NOP)
             if_id_inst    <= 32'h00000013;  // NOP instruction
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
+        end else if (stall_if_id) begin
+            // Hold current values during stall; preserve valid to avoid dropping the instruction
+            if_id_inst    <= if_id_inst;
+            if_id_pc      <= if_id_pc;
+            if_id_next_pc <= if_id_next_pc;
+            if_id_valid   <= if_id_valid;
         end else begin
             // Align IF/ID PC with the instruction returned by synchronous imem
             if_id_inst    <= inst;
@@ -356,10 +360,7 @@ module hart #(
     wire branch_taken_id;                  // Branch is taken
     assign branch_taken_id = is_branch_id & branch_condition_id;
 
-    // Flush signal - asserted when control flow change taken in ID stage
-    assign flush_if_id = (is_jalr_id | is_jal_id | branch_taken_id);
-
-    // With synchronous imem, the wrong-path instruction (from the address
+        // With synchronous imem, the wrong-path instruction (from the address
     // presented this cycle) arrives next cycle. Carry a 1-cycle delayed flush
     // to squash that instruction as well.
     always @(posedge i_clk) begin
@@ -370,6 +371,11 @@ module hart #(
         end
     end
 
+
+    // Flush signal - asserted when control flow change taken in ID stage
+    assign flush_if_id = !stall_if_id && (is_jalr_id | is_jal_id | branch_taken_id);
+
+
     // Target address calculation
     wire [31:0] branch_target_id;          // Branch/JAL target address
     wire [31:0] jalr_target_id;            // JALR target address
@@ -378,9 +384,9 @@ module hart #(
     assign jalr_target_id = (branch_rs1_data + imm) & ~32'd1;       // Register+immediate, clear LSB
 
     // Next PC Selection (controlled by ID stage branch/jump decisions)
-    assign next_pc = is_jalr_id ? jalr_target_id :                 // JALR: rs1 + imm
+    assign next_pc = (!stall_pc) ? (is_jalr_id ? jalr_target_id :                 // JALR: rs1 + imm
                      (is_jal_id | branch_taken_id) ? branch_target_id : // JAL/taken branch: PC + imm
-                     pc_plus_4;                                     // Default: PC + 4
+                     pc_plus_4) : next_pc;                                     // Default: PC + 4
 
     //-------------------------------------------------------------------------
     // 2.6: ID/EX Pipeline Register
@@ -501,9 +507,12 @@ module hart #(
     //-------------------------------------------------------------------------
     // Detects RAW hazards and generates stall signals for load-use hazards
 
+    reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
+
     hazard_unit hazard_detector (
         .i_id_rs1(rs1),
         .i_id_rs2(rs2),
+        // Use the ID-stage branch signal for correct hazard detection
         .i_id_is_branch(is_branch_id),
         .i_id_is_jalr(is_jalr_id),
         .i_ex_rd(id_ex_rd),
@@ -511,6 +520,7 @@ module hart #(
         .i_ex_mem_read(id_ex_mem_read),
         .i_mem_rd(ex_mem_rd),
         .i_mem_reg_write(ex_mem_reg_write),
+        .i_mem_mem_read(ex_mem_mem_read),
         .i_rst_stall(rst_stall),
         .o_stall_pc(stall_pc),
         .o_stall_if_id(stall_if_id),
@@ -560,7 +570,6 @@ module hart #(
         .i_unsigned(i_unsigned),
         .i_arith(i_arith)
     );
-
     //-------------------------------------------------------------------------
     // 3.2: Forwarding Muxes
     //-------------------------------------------------------------------------
@@ -612,7 +621,6 @@ module hart #(
     reg  [4:0]  ex_mem_rs1;              // EX/MEM pipeline register for rs1 address
     reg  [4:0]  ex_mem_rs2;              // EX/MEM pipeline register for rs2 address
     // ex_mem_rd already declared at top
-    reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
     reg         ex_mem_mem_write;        // EX/MEM pipeline register for memory write enable
     // ex_mem_reg_write already declared at top
     reg  [6:0]  ex_mem_opcode;           // EX/MEM pipeline register for opcode

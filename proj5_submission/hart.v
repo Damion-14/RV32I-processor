@@ -5,12 +5,15 @@
 // the RV32I base instruction set. The processor uses the following pipeline stages:
 //
 // 1. INSTRUCTION FETCH (IF)  - Fetch instruction from memory
-// 2. INSTRUCTION DECODE (ID) - Decode instruction and generate control signals
-// 3. EXECUTE (EX)           - ALU operations and branch/jump logic
+// 2. INSTRUCTION DECODE (ID) - Decode instruction, generate control signals, and resolve branches
+// 3. EXECUTE (EX)           - ALU operations
 // 4. MEMORY ACCESS (MEM)    - Load/store operations with alignment handling
 // 5. WRITE BACK (WB)        - Write results back to register file
 //
-// Architecture: Single-cycle datapath with separate instruction/data memories
+// Branch Resolution: Branches are resolved in ID stage (stage 2) for zero-cycle penalty
+// Forwarding: Data forwarding from EX/MEM and MEM/WB to both EX and ID stages
+// Hazard Detection: Load-use hazards detected and stalled appropriately
+// Architecture: 5-stage pipeline with separate instruction/data memories
 // ISA Support: RV32I base integer instruction set
 // Features: Unaligned memory access, trap detection, comprehensive retire interface
 //=============================================================================
@@ -82,44 +85,91 @@ module hart #(
 );
 
     //=========================================================================
+    // FORWARD DECLARATIONS FOR PIPELINE SIGNALS
+    //=========================================================================
+    // These signals are used across multiple pipeline stages and need to be
+    // declared early to avoid "undefined variable" errors
+    
+    // Hazard detection and control signals
+    wire stall_pc, stall_if_id, bubble_id_ex;
+    
+    // EX/MEM pipeline registers (needed for forwarding in EX stage)
+    reg  [31:0] ex_mem_alu_result;
+    reg  [4:0]  ex_mem_rd;
+    reg         ex_mem_reg_write;
+    reg         ex_mem_valid;            // EX/MEM pipeline valid bit
+
+    
+    // MEM/WB pipeline registers (needed for RF write and forwarding)
+    reg  [4:0]  mem_wb_rd;
+    reg         mem_wb_reg_write;
+    reg         mem_wb_valid;            // MEM/WB pipeline valid bit
+
+    reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
+    wire [31:0] alu_result;                // ALU output result
+    wire [31:0] mem_read_data;
+    reg         id_ex_valid;           // ID/EX pipeline valid bit
+    reg  [4:0]  id_ex_rd;               // ID/EX pipeline register for rd address
+    reg         id_ex_reg_write;        // ID/EX pipeline register for register write enable
+
+    //=========================================================================
     // STAGE 1: INSTRUCTION FETCH (IF)
     //=========================================================================
     // The IF stage manages the program counter and fetches instructions from
     // instruction memory. The PC is updated based on control flow decisions
-    // made in the execute stage (branches, jumps, or sequential execution).
+    // made in the decode stage (branches, jumps, or sequential execution).
 
     // Program Counter (PC) Register and Logic
     reg  [31:0] pc;                        // Current program counter
+    reg         rst_store;
     wire [31:0] pc_plus_4;                 // PC + 4 for sequential execution
-    wire [31:0] next_pc;                   // Next PC value (from EX stage)
+    wire [31:0] next_pc;                   // Next PC value (from ID stage)
+    wire        rst_stall;
+
+    // The testbench models imem as synchronous (1-cycle latency). The instruction
+    // observed on 'inst' corresponds to the address presented on 'o_imem_raddr'
+    // in the previous cycle. Track that address so we can align IF/ID.pc with
+    // the arriving instruction correctly.
+    reg [31:0] fetch_pc;                   // PC used for the instruction arriving this cycle
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            fetch_pc <= RESET_ADDR;
+        end else if (!stall_pc) begin
+            fetch_pc <= pc;                // Address driven to imem this cycle
+        end else begin
+            fetch_pc <= fetch_pc;          // Hold during stall
+        end
+    end
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
-    assign o_imem_raddr = pc;              // Send current PC to instruction memory
-
-    wire stall_pc, stall_if_id, bubble_id_ex;
+    assign o_imem_raddr = (stall_pc) ? fetch_pc : pc;              // Send current PC to instruction memory
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
     always @(posedge i_clk) begin
         if (i_rst) begin
-            pc <= RESET_ADDR;              // Reset PC to specified address
+            pc <= RESET_ADDR;            // Reset PC to specified address
         end else if (!stall_pc) begin
-            pc <= next_pc;                 // Update PC from execute stage (unless stalled)
-        end
-        // else: PC holds its current value during stall
+            pc <= next_pc;  
+        end             // else: PC holds its current value during stall
+        rst_store <= i_rst;
     end
+    assign rst_stall = rst_store;
 
     // Instruction Fetch from Memory
     wire [31:0] inst;                      // Current instruction word
-    assign inst = i_imem_rdata;            // Direct connection to memory data
+    wire flush_if_id;
+    reg flush_if_id_d;
+    assign inst = i_imem_rdata;            // Instruction returned from (synchronous) imem
+
+    
+
+    
 
     reg  [31:0] if_id_inst;             // IF/ID pipeline register for instruction
     reg  [31:0] if_id_pc;               // IF/ID pipeline register for PC
     reg  [31:0] if_id_next_pc;          // IF/ID pipeline register for next PC
-    reg         if_id_valid;            // IF/ID pipeline valid bit
-
-    // Flush signal asserted when a control-flow change (branch/jump) is taken in EX
-    wire flush;
+    reg         if_id_valid;            // IF/ID pipeline valid bi
 
     // IF/ID Pipeline Register
     always @(posedge i_clk) begin
@@ -128,17 +178,24 @@ module hart #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
+        end else if (flush_if_id | flush_if_id_d) begin
+            // Flush pipeline: insert bubble (NOP)
+            if_id_inst    <= 32'h00000013;  // NOP instruction
+            if_id_pc      <= 32'b0;
+            if_id_next_pc <= 32'b0;
+            if_id_valid   <= 1'b0;
         end else if (stall_if_id) begin
-            // Hold current values during stall
+            // Hold current values during stall; preserve valid to avoid dropping the instruction
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
             if_id_next_pc <= if_id_next_pc;
             if_id_valid   <= if_id_valid;
         end else begin
+            // Align IF/ID PC with the instruction returned by synchronous imem
             if_id_inst    <= inst;
-            if_id_pc      <= pc;
-            if_id_next_pc <= pc_plus_4;
-            if_id_valid   <= 1'b1;  // Always valid when not flushed/stalled
+            if_id_pc      <= fetch_pc;
+            if_id_next_pc <= fetch_pc + 32'd4;
+            if_id_valid   <= 1'b1;
         end
     end
     //=========================================================================
@@ -225,7 +282,114 @@ module hart #(
     );
 
     //-------------------------------------------------------------------------
-    // 2.5: ID/EX Pipeline Register
+    // 2.5: Branch and Jump Logic (Moved from EX to ID Stage)
+    //-------------------------------------------------------------------------
+    // Branch/jump decisions are made in ID stage for zero-cycle branch penalty
+
+    wire is_branch_id;                     // Current instruction is a branch
+    wire is_jal_id;                        // Current instruction is JAL
+    wire is_jalr_id;                       // Current instruction is JALR
+
+    assign is_branch_id = (opcode == 7'b1100011); // Branch instructions
+    assign is_jal_id    = (opcode == 7'b1101111); // Jump and Link
+    assign is_jalr_id   = (opcode == 7'b1100111); // Jump and Link Register
+
+    // Branch forwarding unit instantiation
+    wire [1:0] forward_branch_a;           // Forward control for branch rs1
+    wire [1:0] forward_branch_b;           // Forward control for branch rs2
+
+    branch_forwarding_unit branch_forwarder (
+        .i_id_rs1(rs1),
+        .i_id_rs2(rs2),
+        .i_ex_rd(id_ex_rd),
+        .i_ex_reg_write(id_ex_reg_write && id_ex_valid),
+        .i_mem_rd(ex_mem_rd),
+        .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
+        .i_wb_rd(mem_wb_rd),
+        .i_wb_reg_write(mem_wb_reg_write && mem_wb_valid),
+        .o_forward_a(forward_branch_a),
+        .o_forward_b(forward_branch_b)
+    );
+
+    // Forwarding muxes for branch operands in ID stage
+    wire [31:0] branch_rs1_data;           // rs1 data with forwarding for branches
+    wire [31:0] branch_rs2_data;           // rs2 data with forwarding for branches
+
+    // Data to forward from EX stage: use ALU result (computed in this cycle)
+    wire [31:0] ex_forward_data;
+    assign ex_forward_data = alu_result;
+
+    // Data to forward from MEM stage: use memory read data for loads, ALU result otherwise
+    wire [31:0] mem_forward_data;
+    assign mem_forward_data = ex_mem_mem_to_reg ? mem_read_data : ex_mem_alu_result;
+
+    // Forward from ID/EX, EX/MEM, or MEM/WB stage to ID stage for branch operands
+    // 00 = No forwarding (use register file data)
+    // 01 = Forward from ID/EX (EX stage)
+    // 10 = Forward from EX/MEM (MEM stage)
+    // 11 = Forward from MEM/WB (WB stage)
+    assign branch_rs1_data = (forward_branch_a == 2'b01) ? ex_forward_data :
+                             (forward_branch_a == 2'b10) ? mem_forward_data :
+                             (forward_branch_a == 2'b11) ? rd_data :
+                             rs1_data;
+
+    assign branch_rs2_data = (forward_branch_b == 2'b01) ? ex_forward_data :
+                             (forward_branch_b == 2'b10) ? mem_forward_data :
+                             (forward_branch_b == 2'b11) ? rd_data :
+                             rs2_data;
+
+    // Branch condition evaluation (using rs1 and rs2 with forwarding)
+    wire branch_eq;                        // Branch operands are equal
+    wire branch_lt_signed;                 // rs1 < rs2 (signed)
+    wire branch_lt_unsigned;               // rs1 < rs2 (unsigned)
+
+    assign branch_eq = (branch_rs1_data == branch_rs2_data);
+    assign branch_lt_signed = ($signed(branch_rs1_data) < $signed(branch_rs2_data));
+    assign branch_lt_unsigned = (branch_rs1_data < branch_rs2_data);
+
+    // Branch condition based on branch type
+    wire branch_condition_id;
+    assign branch_condition_id = (bj_type == 3'b000) ? branch_eq :          // BEQ
+                                 (bj_type == 3'b001) ? ~branch_eq :         // BNE
+                                 (bj_type == 3'b100) ? branch_lt_signed :   // BLT
+                                 (bj_type == 3'b101) ? ~branch_lt_signed :  // BGE
+                                 (bj_type == 3'b110) ? branch_lt_unsigned : // BLTU
+                                 (bj_type == 3'b111) ? ~branch_lt_unsigned :// BGEU
+                                 1'b0;
+
+    wire branch_taken_id;                  // Branch is taken
+    assign branch_taken_id = is_branch_id & branch_condition_id;
+
+        // With synchronous imem, the wrong-path instruction (from the address
+    // presented this cycle) arrives next cycle. Carry a 1-cycle delayed flush
+    // to squash that instruction as well.
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            flush_if_id_d <= 1'b0;
+        end else begin
+            flush_if_id_d <= flush_if_id;
+        end
+    end
+
+
+    // Flush signal - asserted when control flow change taken in ID stage
+    assign flush_if_id = !stall_if_id && (is_jalr_id | is_jal_id | branch_taken_id);
+
+
+    // Target address calculation
+    wire [31:0] branch_target_id;          // Branch/JAL target address
+    wire [31:0] jalr_target_id;            // JALR target address
+
+    assign branch_target_id = if_id_pc + imm;                        // PC-relative for branches/JAL
+    assign jalr_target_id = (branch_rs1_data + imm) & ~32'd1;       // Register+immediate, clear LSB
+
+    // Next PC Selection (controlled by ID stage branch/jump decisions)
+    assign next_pc = (!stall_pc) ? (is_jalr_id ? jalr_target_id :                 // JALR: rs1 + imm
+                     (is_jal_id | branch_taken_id) ? branch_target_id : // JAL/taken branch: PC + imm
+                     pc_plus_4) : next_pc;                                     // Default: PC + 4
+
+    //-------------------------------------------------------------------------
+    // 2.6: ID/EX Pipeline Register
     //-------------------------------------------------------------------------
     // Pipeline registers between Instruction Decode and Execute stages
     reg  [31:0] id_ex_pc;               // ID/EX pipeline register for PC
@@ -234,88 +398,101 @@ module hart #(
     reg  [31:0] id_ex_imm;              // ID/EX pipeline register for immediate
     reg  [4:0]  id_ex_rs1;              // ID/EX pipeline register for rs1 address
     reg  [4:0]  id_ex_rs2;              // ID/EX pipeline register for rs2 address
-    reg  [4:0]  id_ex_rd;               // ID/EX pipeline register for rd address
     reg  [1:0]  id_ex_alu_op;           // ID/EX pipeline register for ALU operation
     reg  [2:0]  id_ex_bj_type;          // ID/EX pipeline register for branch/jump type
     reg         id_ex_alu_src;          // ID/EX pipeline register for ALU source select
     reg         id_ex_mem_read;         // ID/EX pipeline register for memory read enable
     reg         id_ex_mem_write;        // ID/EX pipeline register for memory write enable
     reg         id_ex_mem_to_reg;       // ID/EX pipeline register for memory to register select
-    reg         id_ex_reg_write;        // ID/EX pipeline register for register write enable
     reg  [6:0]  id_ex_opcode;           // ID/EX pipeline register for opcode
     reg  [31:0] id_ex_pc_plus_4;        // ID/EX pipeline register for PC + 4
     reg  [2:0]  id_ex_funct3;          // ID/EX pipeline register for funct3
     reg  [6:0]  id_ex_funct7;          // ID/EX pipeline register for funct7
     reg  [31:0] id_ex_inst;            // ID/EX pipeline register for instruction
-    reg         id_ex_valid;           // ID/EX pipeline valid bit
+    reg         id_ex_is_jal;          // ID/EX pipeline register for is_jal
+    reg         id_ex_is_jalr;         // ID/EX pipeline register for is_jalr
+    reg         id_ex_is_branch;       // ID/EX pipeline register for is_branch
+    reg  [31:0] id_ex_branch_target;   // ID/EX pipeline register for branch/jump target
 
     // ID/EX Pipeline Register
     always @(posedge i_clk) begin
         if (i_rst) begin
-            id_ex_pc         <= 32'b0;
-            id_ex_rs1_data   <= 32'b0;
-            id_ex_rs2_data   <= 32'b0;
-            id_ex_imm        <= 32'b0;
-            id_ex_rs1        <= 5'b0;
-            id_ex_rs2        <= 5'b0;
-            id_ex_rd         <= 5'b0;
-            id_ex_alu_op     <= 2'b0;
-            id_ex_bj_type    <= 3'b0;
-            id_ex_alu_src    <= 1'b0;
-            id_ex_mem_read   <= 1'b0;
-            id_ex_mem_write  <= 1'b0;
-            id_ex_mem_to_reg <= 1'b0;
-            id_ex_reg_write  <= 1'b0;
-            id_ex_opcode     <= 7'b0010011;  // I-type for NOP
-            id_ex_pc_plus_4  <= 32'b0;
-            id_ex_funct3     <= 3'b0;
-            id_ex_funct7     <= 7'b0;
-            id_ex_inst       <= 32'h00000013;  // NOP
-            id_ex_valid      <= 1'b0;
+            id_ex_pc            <= 32'b0;
+            id_ex_rs1_data      <= 32'b0;
+            id_ex_rs2_data      <= 32'b0;
+            id_ex_imm           <= 32'b0;
+            id_ex_rs1           <= 5'b0;
+            id_ex_rs2           <= 5'b0;
+            id_ex_rd            <= 5'b0;
+            id_ex_alu_op        <= 2'b0;
+            id_ex_bj_type       <= 3'b0;
+            id_ex_alu_src       <= 1'b0;
+            id_ex_mem_read      <= 1'b0;
+            id_ex_mem_write     <= 1'b0;
+            id_ex_mem_to_reg    <= 1'b0;
+            id_ex_reg_write     <= 1'b0;
+            id_ex_opcode        <= 7'b0010011;  // I-type for NOP
+            id_ex_pc_plus_4     <= 32'b0;
+            id_ex_funct3        <= 3'b0;
+            id_ex_funct7        <= 7'b0;
+            id_ex_inst          <= 32'h00000013;  // NOP
+            id_ex_valid         <= 1'b0;
+            id_ex_is_jal        <= 1'b0;
+            id_ex_is_jalr       <= 1'b0;
+            id_ex_is_branch     <= 1'b0;
+            id_ex_branch_target <= 32'b0;
         end else if (bubble_id_ex) begin
             // Insert bubble: preserve data but deassert all control signals
             // This creates a NOP in the pipeline
-            id_ex_pc         <= if_id_pc;
-            id_ex_rs1_data   <= rs1_data;
-            id_ex_rs2_data   <= rs2_data;
-            id_ex_imm        <= imm;
-            id_ex_rs1        <= rs1;
-            id_ex_rs2        <= rs2;
-            id_ex_rd         <= 5'b0;          // No destination register
-            id_ex_alu_op     <= alu_op;
-            id_ex_bj_type    <= bj_type;
-            id_ex_alu_src    <= alu_src;
-            id_ex_mem_read   <= 1'b0;          // No memory read
-            id_ex_mem_write  <= 1'b0;          // No memory write
-            id_ex_mem_to_reg <= 1'b0;
-            id_ex_reg_write  <= 1'b0;          // No register write (NOP)
-            id_ex_opcode     <= 7'b0010011;    // I-type opcode (addi x0, x0, 0)
-            id_ex_pc_plus_4  <= if_id_next_pc;
-            id_ex_funct3     <= 3'b000;
-            id_ex_funct7     <= 7'b0;
-            id_ex_inst       <= 32'h00000013;  // NOP instruction encoding
-            id_ex_valid      <= 1'b0;          // Mark as invalid
+            id_ex_pc            <= if_id_pc;
+            id_ex_rs1_data      <= id_ex_rs1_data;
+            id_ex_rs2_data      <= id_ex_rs2_data;
+            id_ex_imm           <= imm;
+            id_ex_rs1           <= id_ex_rs1;
+            id_ex_rs2           <= id_ex_rs2;
+            id_ex_rd            <= 5'b0;          // No destination register
+            id_ex_alu_op        <= alu_op;
+            id_ex_bj_type       <= bj_type;
+            id_ex_alu_src       <= alu_src;
+            id_ex_mem_read      <= 1'b0;          // No memory read
+            id_ex_mem_write     <= 1'b0;          // No memory write
+            id_ex_mem_to_reg    <= 1'b0;
+            id_ex_reg_write     <= 1'b0;          // No register write (NOP)
+            id_ex_opcode        <= 7'b0010011;    // I-type opcode (addi x0, x0, 0)
+            id_ex_pc_plus_4     <= if_id_next_pc;
+            id_ex_funct3        <= 3'b000;
+            id_ex_funct7        <= 7'b0;
+            id_ex_inst          <= 32'h00000013;  // NOP instruction encoding
+            id_ex_valid         <= 1'b0;          // Mark as invalid
+            id_ex_is_jal        <= 1'b0;
+            id_ex_is_jalr       <= 1'b0;
+            id_ex_is_branch     <= 1'b0;
+            id_ex_branch_target <= 32'b0;
         end else begin
-            id_ex_pc         <= if_id_pc;
-            id_ex_rs1_data   <= rs1_data;
-            id_ex_rs2_data   <= rs2_data;
-            id_ex_imm        <= imm;
-            id_ex_rs1        <= rs1;
-            id_ex_rs2        <= rs2;
-            id_ex_rd         <= rd;
-            id_ex_alu_op     <= alu_op;
-            id_ex_bj_type    <= bj_type;
-            id_ex_alu_src    <= alu_src;
-            id_ex_mem_read   <= mem_read;
-            id_ex_mem_write  <= mem_write;
-            id_ex_mem_to_reg <= mem_to_reg;
-            id_ex_reg_write  <= reg_write;
-            id_ex_opcode     <= opcode;
-            id_ex_pc_plus_4  <= if_id_next_pc;
-            id_ex_funct3     <= funct3;
-            id_ex_funct7     <= funct7;
-            id_ex_inst       <= if_id_inst;
-            id_ex_valid      <= if_id_valid;
+            id_ex_pc            <= if_id_pc;
+            id_ex_rs1_data      <= rs1_data;
+            id_ex_rs2_data      <= rs2_data;
+            id_ex_imm           <= imm;
+            id_ex_rs1           <= rs1;
+            id_ex_rs2           <= rs2;
+            id_ex_rd            <= rd;
+            id_ex_alu_op        <= alu_op;
+            id_ex_bj_type       <= bj_type;
+            id_ex_alu_src       <= alu_src;
+            id_ex_mem_read      <= mem_read;
+            id_ex_mem_write     <= mem_write;
+            id_ex_mem_to_reg    <= mem_to_reg;
+            id_ex_reg_write     <= reg_write;
+            id_ex_opcode        <= opcode;
+            id_ex_pc_plus_4     <= if_id_next_pc;
+            id_ex_funct3        <= funct3;
+            id_ex_funct7        <= funct7;
+            id_ex_inst          <= if_id_inst;
+            id_ex_valid         <= if_id_valid;
+            id_ex_is_jal        <= is_jal_id;
+            id_ex_is_jalr       <= is_jalr_id;
+            id_ex_is_branch     <= is_branch_id;
+            id_ex_branch_target <= is_jalr_id ? jalr_target_id : branch_target_id;
         end
     end
 
@@ -329,14 +506,22 @@ module hart #(
     // Hazard Detection Unit
     //-------------------------------------------------------------------------
     // Detects RAW hazards and generates stall signals for load-use hazards
+
+    reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
+
     hazard_unit hazard_detector (
         .i_id_rs1(rs1),
         .i_id_rs2(rs2),
+        // Use the ID-stage branch signal for correct hazard detection
+        .i_id_is_branch(is_branch_id),
+        .i_id_is_jalr(is_jalr_id),
         .i_ex_rd(id_ex_rd),
         .i_ex_reg_write(id_ex_reg_write),
         .i_ex_mem_read(id_ex_mem_read),
         .i_mem_rd(ex_mem_rd),
         .i_mem_reg_write(ex_mem_reg_write),
+        .i_mem_mem_read(ex_mem_mem_read),
+        .i_rst_stall(rst_stall),
         .o_stall_pc(stall_pc),
         .o_stall_if_id(stall_if_id),
         .o_bubble_id_ex(bubble_id_ex)
@@ -352,9 +537,9 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd),
-        .i_mem_reg_write(ex_mem_reg_write),
+        .i_mem_reg_write(ex_mem_reg_write && ex_mem_valid),
         .i_wb_rd(mem_wb_rd),
-        .i_wb_reg_write(mem_wb_reg_write),
+        .i_wb_reg_write(mem_wb_reg_write && mem_wb_valid),
         .o_forward_a(forward_a),
         .o_forward_b(forward_b)
     );
@@ -362,8 +547,8 @@ module hart #(
     //=========================================================================
     // STAGE 3: EXECUTE (EX)
     //=========================================================================
-    // The execute stage performs arithmetic operations, evaluates branch
-    // conditions, and calculates target addresses for control flow instructions.
+    // The execute stage performs arithmetic operations using the ALU.
+    // Branch/jump logic has been moved to ID stage for zero-cycle penalty.
 
     //-------------------------------------------------------------------------
     // 3.1: ALU Control Unit
@@ -385,7 +570,6 @@ module hart #(
         .i_unsigned(i_unsigned),
         .i_arith(i_arith)
     );
-
     //-------------------------------------------------------------------------
     // 3.2: Forwarding Muxes
     //-------------------------------------------------------------------------
@@ -410,7 +594,6 @@ module hart #(
     //-------------------------------------------------------------------------
     // Performs arithmetic and logical operations on two 32-bit operands
     wire [31:0] alu_op1, alu_op2;          // ALU input operands
-    wire [31:0] alu_result;                // ALU output result
     wire alu_eq;                           // Operands are equal
     wire alu_slt;                          // Operand 1 < Operand 2 (signed/unsigned)
 
@@ -429,47 +612,6 @@ module hart #(
         .o_slt(alu_slt)
     );
 
-    //-------------------------------------------------------------------------
-    // 3.3: Branch and Jump Logic
-    //-------------------------------------------------------------------------
-    // Evaluates branch conditions and calculates target addresses for control flow
-    wire is_branch;                        // Current instruction is a branch
-    wire is_jal;                           // Current instruction is JAL
-    wire is_jalr;                          // Current instruction is JALR
-    wire branch_taken;                     // Branch condition is satisfied
-
-    assign is_branch = (id_ex_opcode == 7'b1100011); // Branch instructions
-    assign is_jal    = (id_ex_opcode == 7'b1101111); // Jump and Link
-    assign is_jalr   = (id_ex_opcode == 7'b1100111); // Jump and Link Register
-
-    // Branch Condition Evaluation
-    // Determines if branch should be taken based on branch type and ALU flags
-    wire branch_condition;
-    assign branch_condition = (bj_type == 3'b000) ? alu_eq :        // BEQ: branch if equal
-                              (bj_type == 3'b001) ? ~alu_eq :       // BNE: branch if not equal
-                              (bj_type == 3'b100) ? alu_slt :       // BLT: branch if less than (signed)
-                              (bj_type == 3'b101) ? ~alu_slt :      // BGE: branch if greater/equal (signed)
-                              (bj_type == 3'b110) ? alu_slt :       // BLTU: branch if less than (unsigned)
-                              (bj_type == 3'b111) ? ~alu_slt :      // BGEU: branch if greater/equal (unsigned)
-                              1'b0;                                  // Default: No branch
-
-    assign branch_taken = is_branch & branch_condition;
-
-    // Target Address Calculation
-    wire [31:0] branch_target;             // Branch/JAL target address
-    wire [31:0] jalr_target;               // JALR target address
-
-    assign branch_target = id_ex_pc + id_ex_imm;                       // PC-relative for branches/JAL
-    assign jalr_target = (forwarded_rs1_data + id_ex_imm) & ~32'd1;   // Register+immediate (with forwarding), clear LSB
-
-    // Next PC Selection (feeds back to IF stage)
-    // Default sequential PC should use current PC+4; redirect only when EX decides a control flow change
-    assign next_pc = is_jalr ? jalr_target :                 // JALR: rs1 + imm
-                     (is_jal | branch_taken) ? branch_target : // JAL/taken branch: PC + imm
-                     pc_plus_4;                              // Default: current PC + 4
-
-    // Flush asserted when a control-flow change is taken in EX
-    assign flush = (is_jalr | is_jal | branch_taken);
 
     //Pipeline registers between EX and MEM stages
     reg  [31:0] ex_mem_pc;               // EX/MEM pipeline register for PC
@@ -478,14 +620,12 @@ module hart #(
     reg  [31:0] ex_mem_imm;              // EX/MEM pipeline register for immediate
     reg  [4:0]  ex_mem_rs1;              // EX/MEM pipeline register for rs1 address
     reg  [4:0]  ex_mem_rs2;              // EX/MEM pipeline register for rs2 address
-    reg  [4:0]  ex_mem_rd;               // EX/MEM pipeline register for rd address
-    reg         ex_mem_mem_read;         // EX/MEM pipeline register for memory read enable
+    // ex_mem_rd already declared at top
     reg         ex_mem_mem_write;        // EX/MEM pipeline register for memory write enable
-    reg         ex_mem_mem_to_reg;       // EX/MEM pipeline register for memory to register select
-    reg         ex_mem_reg_write;        // EX/MEM pipeline register for register write enable
+    // ex_mem_reg_write already declared at top
     reg  [6:0]  ex_mem_opcode;           // EX/MEM pipeline register for opcode
     reg  [31:0] ex_mem_pc_plus_4;        // EX/MEM pipeline register for PC + 4
-    reg  [31:0] ex_mem_alu_result;       // EX/MEM pipeline register for ALU result
+    // ex_mem_alu_result already declared at top
     reg  [2:0]  ex_mem_funct3;          // EX/MEM pipeline register for funct3
     reg  [6:0]  ex_mem_funct7;          // EX/MEM pipeline register for funct7
     reg         ex_mem_is_jal;           // EX/MEM pipeline register for is_jal
@@ -493,9 +633,8 @@ module hart #(
     reg         ex_mem_is_branch;        // EX/MEM pipeline register for is_branch
     reg         ex_mem_is_store;         // EX/MEM pipeline register for is_store
     reg  [31:0] ex_mem_inst;           // EX/MEM pipeline register for instruction
-    reg         ex_mem_unaligned_pc;     // EX/MEM pipeline register for unaligned PC flag
-    reg         ex_mem_valid;            // EX/MEM pipeline valid bit
     reg  [31:0] ex_mem_next_pc;          // EX/MEM pipeline register for actual next PC
+    reg  [31:0] ex_mem_branch_target;    // EX/MEM pipeline register for branch target (for unaligned check)
 
     // EX/MEM Pipeline Register
     always @(posedge i_clk) begin
@@ -521,12 +660,12 @@ module hart #(
             ex_mem_is_store      <= 1'b0;
             ex_mem_inst          <= 32'h00000013;  // NOP
             ex_mem_rs1_data      <= 32'b0;
-            ex_mem_unaligned_pc  <= 1'b0;
             ex_mem_valid         <= 1'b0;
             ex_mem_next_pc       <= 32'b0;
+            ex_mem_branch_target <= 32'b0;
         end else begin
             ex_mem_alu_result    <= alu_result;
-            ex_mem_rs2_data      <= id_ex_rs2_data;  // Original register value for retire interface
+            ex_mem_rs2_data      <= forwarded_rs2_data;  // Original register value for retire interface
             ex_mem_opcode        <= id_ex_opcode;
             ex_mem_pc_plus_4     <= id_ex_pc_plus_4;
             ex_mem_mem_read      <= id_ex_mem_read;
@@ -540,18 +679,15 @@ module hart #(
             ex_mem_imm           <= id_ex_imm;
             ex_mem_funct3        <= id_ex_funct3;
             ex_mem_funct7        <= id_ex_funct7;
-            ex_mem_is_jal        <= is_jal;
-            ex_mem_is_jalr       <= is_jalr;
-            ex_mem_is_branch     <= is_branch;
+            ex_mem_is_jal        <= id_ex_is_jal;
+            ex_mem_is_jalr       <= id_ex_is_jalr;
+            ex_mem_is_branch     <= id_ex_is_branch;
             ex_mem_is_store      <= (id_ex_opcode == 7'b0100011);
             ex_mem_inst          <= id_ex_inst;
-            ex_mem_rs1_data      <= id_ex_rs1_data;  // Original register value for retire interface
-            ex_mem_unaligned_pc  <= (is_jal | branch_taken) ? (branch_target[1:0] != 2'b00) :
-                                    (is_jalr ? (jalr_target[1:0] != 2'b00) : 1'b0);
+            ex_mem_rs1_data      <= forwarded_rs1_data;  // Original register value for retire interface
             ex_mem_valid         <= id_ex_valid;
-            ex_mem_next_pc       <= is_jalr ? jalr_target :
-                                    (is_jal | branch_taken) ? branch_target :
-                                    id_ex_pc_plus_4;
+            ex_mem_next_pc       <= (id_ex_is_jal | id_ex_is_jalr | id_ex_is_branch) ? id_ex_branch_target : id_ex_pc_plus_4;
+            ex_mem_branch_target <= id_ex_branch_target;
         end
     end
     //=========================================================================
@@ -560,6 +696,59 @@ module hart #(
     // The memory stage handles load and store operations with support for
     // byte, half-word, and word accesses at aligned and unaligned addresses.
     // It also handles the necessary data shifting and masking operations.
+
+    //-------------------------------------------------------------------------
+    // 4.0: Store-to-Load Forwarding (MEM-to-MEM)
+    //-------------------------------------------------------------------------
+    // Detect when a load reads from the same address a store is writing to.
+    // Since memory is synchronous (writes take effect on clock edge), we need
+    // to forward store data when a load follows a store to the same address.
+
+    // Previous cycle's store information
+    reg [31:0] prev_store_addr;
+    reg [31:0] prev_store_data_raw;  // Original rs2 data before shifting
+    reg [ 3:0] prev_store_mask;
+    reg        prev_store_valid;
+    reg [ 2:0] prev_store_funct3;    // Store size (SB/SH/SW)
+
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            prev_store_addr     <= 32'b0;
+            prev_store_data_raw <= 32'b0;
+            prev_store_mask     <= 4'b0;
+            prev_store_valid    <= 1'b0;
+            prev_store_funct3   <= 3'b0;
+        end else begin
+            prev_store_addr     <= o_dmem_addr;
+            prev_store_data_raw <= o_dmem_wdata;  // Store the shifted data
+            prev_store_mask     <= o_dmem_mask;
+            prev_store_valid    <= o_dmem_wen;
+            prev_store_funct3   <= ex_mem_funct3;
+        end
+    end
+
+    // Detect store-to-load forwarding condition
+    wire mem_to_mem_forward;
+    assign mem_to_mem_forward = prev_store_valid &&           // Previous instruction was a store
+                                ex_mem_mem_read &&            // Current instruction is a load
+                                (prev_store_addr == o_dmem_addr); // Same aligned address
+
+    // Reconstruct the memory word with forwarded store data
+    // We need to merge the stored bytes into the memory word based on the store mask
+    wire [31:0] dmem_rdata_or_forwarded;
+    wire [31:0] forwarded_store_word;
+
+    // Reconstruct what the memory word looks like after the store
+    // based on which bytes were written (indicated by prev_store_mask)
+    // Each byte of the memory word comes from either the stored data or existing memory
+    assign forwarded_store_word = {
+        prev_store_mask[3] ? prev_store_data_raw[31:24] : i_dmem_rdata[31:24],
+        prev_store_mask[2] ? prev_store_data_raw[23:16] : i_dmem_rdata[23:16],
+        prev_store_mask[1] ? prev_store_data_raw[15:8]  : i_dmem_rdata[15:8],
+        prev_store_mask[0] ? prev_store_data_raw[7:0]   : i_dmem_rdata[7:0]
+    };
+
+    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? forwarded_store_word : i_dmem_rdata;
 
     //-------------------------------------------------------------------------
     // 4.1: Memory Address Calculation and Alignment
@@ -608,60 +797,60 @@ module hart #(
             // LB: Load Byte (sign-extended)
             3'b000: begin
                 case (byte_offset)
-                    2'b00: load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
-                    2'b01: load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
-                    2'b10: load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
-                    default: load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
+                    2'b00: load_data_processed = {{24{dmem_rdata_or_forwarded[7]}},  dmem_rdata_or_forwarded[7:0]};
+                    2'b01: load_data_processed = {{24{dmem_rdata_or_forwarded[15]}}, dmem_rdata_or_forwarded[15:8]};
+                    2'b10: load_data_processed = {{24{dmem_rdata_or_forwarded[23]}}, dmem_rdata_or_forwarded[23:16]};
+                    default: load_data_processed = {{24{dmem_rdata_or_forwarded[31]}}, dmem_rdata_or_forwarded[31:24]};
                 endcase
             end
 
             // LH: Load Half-word (sign-extended)
             3'b001: begin
                 case (byte_offset[1])
-                    1'b0: load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
-                    default: load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
+                    1'b0: load_data_processed = {{16{dmem_rdata_or_forwarded[15]}}, dmem_rdata_or_forwarded[15:0]};
+                    default: load_data_processed = {{16{dmem_rdata_or_forwarded[31]}}, dmem_rdata_or_forwarded[31:16]};
                 endcase
             end
 
             // LW: Load Word (no extension needed)
-            3'b010: load_data_processed = i_dmem_rdata;
+            3'b010: load_data_processed = dmem_rdata_or_forwarded;
 
             // LBU: Load Byte Unsigned (zero-extended)
             3'b100: begin
                 case (byte_offset)
-                    2'b00: load_data_processed = {24'b0, i_dmem_rdata[7:0]};
-                    2'b01: load_data_processed = {24'b0, i_dmem_rdata[15:8]};
-                    2'b10: load_data_processed = {24'b0, i_dmem_rdata[23:16]};
-                    default: load_data_processed = {24'b0, i_dmem_rdata[31:24]};
+                    2'b00: load_data_processed = {24'b0, dmem_rdata_or_forwarded[7:0]};
+                    2'b01: load_data_processed = {24'b0, dmem_rdata_or_forwarded[15:8]};
+                    2'b10: load_data_processed = {24'b0, dmem_rdata_or_forwarded[23:16]};
+                    default: load_data_processed = {24'b0, dmem_rdata_or_forwarded[31:24]};
                 endcase
             end
 
             // LHU: Load Half-word Unsigned (zero-extended)
             3'b101: begin
                 case (byte_offset[1])
-                    1'b0: load_data_processed = {16'b0, i_dmem_rdata[15:0]};
-                    default: load_data_processed = {16'b0, i_dmem_rdata[31:16]};
+                    1'b0: load_data_processed = {16'b0, dmem_rdata_or_forwarded[15:0]};
+                    default: load_data_processed = {16'b0, dmem_rdata_or_forwarded[31:16]};
                 endcase
             end
 
-            default: load_data_processed = i_dmem_rdata;    // Default to word load
+            default: load_data_processed = dmem_rdata_or_forwarded;    // Default to word load
         endcase
     end
 
-    wire [31:0] mem_read_data;
     assign mem_read_data = load_data_processed;
 
     //-------------------------------------------------------------------------
     // 4.4: MEM/WB Pipeline Register
     //-------------------------------------------------------------------------
-    reg  [31:0] mem_wb_mem_read_data;     // MEM/WB pipeline register for memory read data
+    reg  [31:0] mem_wb_mem_read_data;     // MEM/WB pipeline register for memory read data (processed)
+    reg  [31:0] mem_wb_mem_read_data_raw; // MEM/WB pipeline register for raw memory data (for retire interface)
     reg  [31:0] mem_wb_alu_result;        // MEM/WB pipeline register for ALU result
-    reg  [4:0]  mem_wb_rd;                // MEM/WB pipeline register for rd address
+    // mem_wb_rd already declared at top
     reg         mem_wb_mem_to_reg;        // MEM/WB pipeline register for memory to register select
-    reg         mem_wb_reg_write;         // MEM/WB pipeline register for register write enable (reg for RF)
+    // mem_wb_reg_write already declared at top (reg for RF)
     reg  [31:0] mem_wb_pc_plus_4;        // MEM/WB pipeline register for PC + 4
     reg  [6:0]  mem_wb_opcode;           // MEM/WB pipeline register for opcode
-    reg  [31:0] mem_wb_imm;             // MEM/WB pipeline register for immediate value
+    reg  [31:0] mem_wb_imm;              // MEM/WB pipeline register for immediate value
     reg         mem_wb_is_jal;           // MEM/WB pipeline register for is_jal
     reg         mem_wb_is_jalr;          // MEM/WB pipeline register for is_jalr
     reg         mem_wb_is_branch;        // MEM/WB pipeline register for is_branch
@@ -677,8 +866,8 @@ module hart #(
     reg         mem_wb_is_store;         // MEM/WB pipeline register for is_store
     reg         mem_wb_unaligned_pc;     // MEM/WB pipeline register for unaligned PC trap flag
     reg         mem_wb_unaligned_mem;    // MEM/WB pipeline register for unaligned MEM trap flag
-    reg         mem_wb_valid;            // MEM/WB pipeline valid bit
     reg  [31:0] mem_wb_dmem_addr;        // MEM/WB pipeline register for memory address
+    reg  [ 1:0] mem_wb_byte_offset;      // MEM/WB pipeline register for original byte offset
     reg  [ 3:0] mem_wb_dmem_mask;        // MEM/WB pipeline register for memory mask
     reg  [31:0] mem_wb_dmem_wdata;       // MEM/WB pipeline register for memory write data
     reg  [31:0] mem_wb_next_pc;          // MEM/WB pipeline register for actual next PC
@@ -686,65 +875,71 @@ module hart #(
     // MEM/WB Pipeline Register
     always @(posedge i_clk) begin
         if (i_rst) begin
-            mem_wb_mem_read_data  <= 32'b0;
-            mem_wb_alu_result     <= 32'b0;
-            mem_wb_rd             <= 5'b0;
-            mem_wb_mem_to_reg     <= 1'b0;
-            mem_wb_reg_write      <= 1'b0;
-            mem_wb_pc_plus_4      <= 32'b0;
-            mem_wb_opcode         <= 7'b0010011;  // I-type for NOP
-            mem_wb_imm            <= 32'b0;
-            mem_wb_is_jal         <= 1'b0;
-            mem_wb_is_jalr        <= 1'b0;
-            mem_wb_is_branch      <= 1'b0;
-            mem_wb_mem_read       <= 1'b0;
-            mem_wb_mem_write      <= 1'b0;
-            mem_wb_funct3         <= 3'b0;
-            mem_wb_rs1            <= 5'b0;
-            mem_wb_rs2            <= 5'b0;
-            mem_wb_rs1_data       <= 32'b0;
-            mem_wb_rs2_data       <= 32'b0;
-            mem_wb_pc             <= 32'b0;
-            mem_wb_inst           <= 32'h00000013;  // NOP
-            mem_wb_is_store       <= 1'b0;
-            mem_wb_unaligned_pc   <= 1'b0;
-            mem_wb_unaligned_mem  <= 1'b0;
-            mem_wb_valid          <= 1'b0;
-            mem_wb_dmem_addr      <= 32'b0;
-            mem_wb_dmem_mask      <= 4'b0;
-            mem_wb_dmem_wdata     <= 32'b0;
-            mem_wb_next_pc        <= 32'b0;
+            mem_wb_mem_read_data      <= 32'b0;
+            mem_wb_mem_read_data_raw  <= 32'b0;
+            mem_wb_alu_result         <= 32'b0;
+            mem_wb_rd                 <= 5'b0;
+            mem_wb_mem_to_reg         <= 1'b0;
+            mem_wb_reg_write          <= 1'b0;
+            mem_wb_pc_plus_4          <= 32'b0;
+            mem_wb_opcode             <= 7'b0010011;  // I-type for NOP
+            mem_wb_imm                <= 32'b0;
+            mem_wb_is_jal             <= 1'b0;
+            mem_wb_is_jalr            <= 1'b0;
+            mem_wb_is_branch          <= 1'b0;
+            mem_wb_mem_read           <= 1'b0;
+            mem_wb_mem_write          <= 1'b0;
+            mem_wb_funct3             <= 3'b0;
+            mem_wb_rs1                <= 5'b0;
+            mem_wb_rs2                <= 5'b0;
+            mem_wb_rs1_data           <= 32'b0;
+            mem_wb_rs2_data           <= 32'b0;
+            mem_wb_pc                 <= 32'b0;
+            mem_wb_inst               <= 32'h00000013;  // NOP
+            mem_wb_is_store           <= 1'b0;
+            mem_wb_unaligned_pc       <= 1'b0;
+            mem_wb_unaligned_mem      <= 1'b0;
+            mem_wb_valid              <= 1'b0;
+            mem_wb_dmem_addr          <= 32'b0;
+            mem_wb_byte_offset        <= 2'b00;
+            mem_wb_dmem_mask          <= 4'b0;
+            mem_wb_dmem_wdata         <= 32'b0;
+            mem_wb_next_pc            <= 32'b0;
         end else begin
-            mem_wb_mem_read_data  <= mem_read_data;
-            mem_wb_alu_result     <= ex_mem_alu_result;
-            mem_wb_rd             <= ex_mem_rd;
-            mem_wb_mem_to_reg     <= ex_mem_mem_to_reg;
-            mem_wb_reg_write      <= ex_mem_reg_write;
-            mem_wb_pc_plus_4      <= ex_mem_pc_plus_4;
-            mem_wb_opcode         <= ex_mem_opcode;
-            mem_wb_imm            <= ex_mem_imm;
-            mem_wb_is_jal         <= ex_mem_is_jal;
-            mem_wb_is_jalr        <= ex_mem_is_jalr;
-            mem_wb_is_branch      <= ex_mem_is_branch;
-            mem_wb_mem_read       <= ex_mem_mem_read;
-            mem_wb_mem_write      <= ex_mem_mem_write;
-            mem_wb_funct3         <= ex_mem_funct3;
-            mem_wb_rs1            <= ex_mem_rs1;
-            mem_wb_rs2            <= ex_mem_rs2;
-            mem_wb_rs1_data       <= ex_mem_rs1_data;
-            mem_wb_rs2_data       <= ex_mem_rs2_data;
-            mem_wb_pc             <= ex_mem_pc;
-            mem_wb_inst           <= ex_mem_inst;
-            mem_wb_is_store       <= ex_mem_is_store;
-            mem_wb_unaligned_pc   <= ex_mem_unaligned_pc;
-            mem_wb_unaligned_mem  <= (ex_mem_mem_read | ex_mem_mem_write) &&
-                                     ((ex_mem_funct3[1:0] == 2'b10 && dmem_addr_unaligned[1:0] != 2'b00) ||
-                                      (ex_mem_funct3[1:0] == 2'b01 && dmem_addr_unaligned[0] != 1'b0));
-            mem_wb_valid          <= ex_mem_valid;
-            mem_wb_dmem_addr      <= o_dmem_addr;
-            mem_wb_dmem_mask      <= o_dmem_mask;
-            mem_wb_dmem_wdata     <= o_dmem_wdata;
-            mem_wb_next_pc        <= ex_mem_next_pc;
+            mem_wb_mem_read_data      <= mem_read_data;
+            mem_wb_mem_read_data_raw  <= dmem_rdata_or_forwarded;  // Raw memory word for retire interface
+            mem_wb_alu_result         <= ex_mem_alu_result;
+            mem_wb_rd                 <= ex_mem_rd;
+            mem_wb_mem_to_reg         <= ex_mem_mem_to_reg;
+            mem_wb_reg_write          <= ex_mem_reg_write;
+            mem_wb_pc_plus_4          <= ex_mem_pc_plus_4;
+            mem_wb_opcode             <= ex_mem_opcode;
+            mem_wb_imm                <= ex_mem_imm;
+            mem_wb_is_jal             <= ex_mem_is_jal;
+            mem_wb_is_jalr            <= ex_mem_is_jalr;
+            mem_wb_is_branch          <= ex_mem_is_branch;
+            mem_wb_mem_read           <= ex_mem_mem_read;
+            mem_wb_mem_write          <= ex_mem_mem_write;
+            mem_wb_funct3             <= ex_mem_funct3;
+            mem_wb_rs1                <= ex_mem_rs1;
+            mem_wb_rs2                <= ex_mem_rs2;
+            mem_wb_rs1_data           <= ex_mem_rs1_data;
+            mem_wb_rs2_data           <= ex_mem_rs2_data;
+            mem_wb_pc                 <= ex_mem_pc;
+            mem_wb_inst               <= ex_mem_inst;
+            mem_wb_is_store           <= ex_mem_is_store;
+            // Check for unaligned branch/jump target in MEM stage
+            mem_wb_unaligned_pc       <= (ex_mem_is_jal | ex_mem_is_jalr | ex_mem_is_branch) &&
+                                         (ex_mem_branch_target[1:0] != 2'b00);
+            mem_wb_unaligned_mem      <= (ex_mem_mem_read | ex_mem_mem_write) &&
+                                         ((ex_mem_funct3[1:0] == 2'b10 && dmem_addr_unaligned[1:0] != 2'b00) ||
+                                          (ex_mem_funct3[1:0] == 2'b01 && dmem_addr_unaligned[0] != 1'b0));
+            mem_wb_valid              <= ex_mem_valid;
+            mem_wb_dmem_addr          <= o_dmem_addr;
+            mem_wb_byte_offset        <= byte_offset;
+            mem_wb_dmem_mask          <= o_dmem_mask;
+            mem_wb_dmem_wdata         <= o_dmem_wdata;
+            mem_wb_next_pc            <= ex_mem_next_pc;
         end
     end
 
@@ -759,8 +954,59 @@ module hart #(
     wire is_auipc = (mem_wb_opcode == 7'b0010111);            // Add Upper Immediate to PC
     wire is_store = (mem_wb_opcode == 7'b0100011);            // Store instructions
 
+    // Reprocess current memory data for retiring load instructions
+    // This ensures rd_data matches o_retire_dmem_rdata (i_dmem_rdata)
+    wire [1:0] wb_byte_offset;
+    assign wb_byte_offset = mem_wb_byte_offset;
+
+    reg [31:0] wb_load_data_processed;
+    always @(*) begin
+        case (mem_wb_funct3)
+            // LB: Load Byte (sign-extended)
+            3'b000: begin
+                case (wb_byte_offset)
+                    2'b00: wb_load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
+                    2'b01: wb_load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
+                    2'b10: wb_load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
+                    default: wb_load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
+                endcase
+            end
+
+            // LH: Load Half-word (sign-extended)
+            3'b001: begin
+                case (wb_byte_offset[1])
+                    1'b0: wb_load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
+                    default: wb_load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
+                endcase
+            end
+
+            // LW: Load Word (no extension needed)
+            3'b010: wb_load_data_processed = i_dmem_rdata;
+
+            // LBU: Load Byte Unsigned (zero-extended)
+            3'b100: begin
+                case (wb_byte_offset)
+                    2'b00: wb_load_data_processed = {24'b0, i_dmem_rdata[7:0]};
+                    2'b01: wb_load_data_processed = {24'b0, i_dmem_rdata[15:8]};
+                    2'b10: wb_load_data_processed = {24'b0, i_dmem_rdata[23:16]};
+                    default: wb_load_data_processed = {24'b0, i_dmem_rdata[31:24]};
+                endcase
+            end
+
+            // LHU: Load Half-word Unsigned (zero-extended)
+            3'b101: begin
+                case (wb_byte_offset[1])
+                    1'b0: wb_load_data_processed = {16'b0, i_dmem_rdata[15:0]};
+                    default: wb_load_data_processed = {16'b0, i_dmem_rdata[31:16]};
+                endcase
+            end
+
+            default: wb_load_data_processed = i_dmem_rdata;    // Default to word load
+        endcase
+    end
+
     // Register Write Data Selection
-    assign rd_data = mem_wb_mem_to_reg ? mem_wb_mem_read_data :       // Load instructions: memory data
+    assign rd_data = mem_wb_mem_to_reg ? wb_load_data_processed :       // Load instructions: reprocessed current memory data
                      (mem_wb_is_jal | mem_wb_is_jalr) ? mem_wb_pc_plus_4 :   // JAL/JALR: return address (PC+4)
                      is_lui ? mem_wb_imm :                     // LUI: immediate value
                      is_auipc ? (mem_wb_pc + mem_wb_imm) :            // AUIPC: PC + immediate
@@ -826,7 +1072,7 @@ module hart #(
     assign o_retire_dmem_wen = mem_wb_mem_write;               // Data memory write enable
     assign o_retire_dmem_mask = mem_wb_dmem_mask;              // Data memory byte mask
     assign o_retire_dmem_wdata = mem_wb_dmem_wdata;            // Data memory write data
-    assign o_retire_dmem_rdata = mem_wb_mem_read_data;         // Data memory read data
+    assign o_retire_dmem_rdata = i_dmem_rdata;                 // Data memory read data (current cycle, reflects completed writes)
 
 endmodule
 
