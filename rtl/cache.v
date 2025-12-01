@@ -17,6 +17,7 @@ module cache (
     output wire [31:0] o_mem_wdata,
     input  wire [31:0] i_mem_rdata,
     input  wire        i_mem_valid,
+    input  wire        i_mem_wdone,
     // Interface to CPU hart. This is nearly identical to the phase 5 hart memory
     // interface, but includes a stall signal (`o_busy`), and the input/output
     // polarities are swapped for obvious reasons.
@@ -167,7 +168,7 @@ module cache (
             end
 
             STATE_WRITE_MEM: begin
-                if (i_mem_valid) begin
+                if (i_mem_wdone) begin
                     next_state = STATE_READ_LINE;
                 end
             end
@@ -238,20 +239,27 @@ module cache (
                     // We have received data (valid is high), so the counter is about to increment.
                     // We must fire the request for the NEXT word (counter + 1).
                     // We request words 1, 2, and 3 here.
-                    if (i_mem_ready && i_mem_valid && word_counter < 2'd3) begin
-                        mem_ren_reg <= 1'b1;
-                        // Use the current address tag, but update the word offset
-                        mem_addr_reg <= {mem_addr_reg[31:O], word_counter + 1'b1, 2'b00};
-                    end 
+                    if (i_mem_ready) begin
+                        if (word_counter == 2'd0 && !i_mem_valid) begin
+                            // First read not yet issued (memory wasn't ready in previous state)
+                            mem_ren_reg <= 1'b1;
+                            // Address already set up, keep it
+                        end else if (i_mem_valid && word_counter < 2'd3) begin
+                            // Received data for current word, request next word
+                            mem_ren_reg <= 1'b1;
+                            // Use the current address tag, but update the word offset
+                            mem_addr_reg <= {mem_addr_reg[31:O], word_counter + 1'b1, 2'b00};
+                        end
+                    end
                 end
 
                 STATE_WRITE_MEM: begin
-                    if (i_mem_valid) begin
-                        // Write is done. 
+                    if (i_mem_wdone) begin
+                        // Write is done.
                         // The state machine will transition to READ_LINE automatically.
                         // We must trigger the Read for Word 0 immediately here.
                         if (i_mem_ready) begin
-                            mem_ren_reg <= 1'b1; 
+                            mem_ren_reg <= 1'b1;
                             mem_addr_reg <= {i_req_addr[31:O], {O{1'b0}}};
                         end
                     end

@@ -22,6 +22,7 @@ module cache_tb ();
     wire [3:0]  mem_mask;
     wire [31:0] mem_wdata;
     wire        mem_valid;
+    wire        mem_wdone;
     wire [31:0] mem_oaddr;
     wire [31:0] mem_rdata;
 
@@ -57,6 +58,7 @@ module cache_tb ();
         .i_mask(mem_mask),
         .i_wdata(mem_wdata),
         .o_valid(mem_valid),
+        .o_wdone(mem_wdone),
         .o_addr(mem_oaddr),
         .o_rdata(mem_rdata)
     );
@@ -71,6 +73,7 @@ module cache_tb ();
         .o_mem_wdata(mem_wdata),
         .i_mem_rdata(mem_rdata),
         .i_mem_valid(mem_valid),
+        .i_mem_wdone(mem_wdone),
         .o_busy(busy),
         .i_req_addr(req_addr),
         .i_req_ren(req_ren),
