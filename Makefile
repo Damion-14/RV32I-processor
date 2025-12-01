@@ -15,7 +15,7 @@
 IVERILOG := iverilog
 VERILATOR := verilator
 VVP := vvp
-GTKWAVE := gtkwave
+WAVEFORM_VIEWER := surfer
 
 # Verilog Standard
 VERILOG_STD := -g2012
@@ -39,6 +39,12 @@ ALL_RTL := $(COMPONENTS) $(PIPELINE_CONTROL) $(STAGES) $(TOP)
 
 # Simulator Executable
 SIM := hart_sim
+CACHE_SIM := cache_sim
+
+# Cache Testbench Files
+CACHE_TB := $(TB_DIR)/cache_tb.sv
+CACHE_RTL := $(RTL_DIR)/cache.v
+MEMORY_RTL := $(RTL_DIR)/tb_memory.v
 
 # Test Files
 TEST_FILES := $(sort $(wildcard $(TB_DIR)/*.mem))
@@ -74,6 +80,38 @@ compile: $(SIM)
 $(SIM): $(ALL_RTL) $(TESTBENCH)
 	@echo "$(BLUE)Compiling RV32I processor...$(NC)"
 	@$(IVERILOG) $(VERILOG_STD) -o $@ $(ALL_RTL) $(TESTBENCH)
+
+#=============================================================================
+# Cache Testbench Targets
+#=============================================================================
+
+.PHONY: cache
+cache: $(CACHE_SIM)
+	@echo "$(BLUE)Running cache testbench...$(NC)"
+	@./$(CACHE_SIM)
+	@echo "$(GREEN)✓ Cache simulation complete!$(NC)"
+	@echo "  Waveform: cache.vcd"
+	@echo "  To view: make cache-wave"
+
+$(CACHE_SIM): $(CACHE_RTL) $(MEMORY_RTL) $(CACHE_TB)
+	@echo "$(BLUE)Compiling cache testbench...$(NC)"
+	@if [ ! -f $(MEMORY_RTL) ]; then \
+		echo "$(RED)Error: Memory module not found at $(MEMORY_RTL)$(NC)"; \
+		echo "$(YELLOW)Please ensure memory.v exists in rtl/ directory$(NC)"; \
+		exit 1; \
+	fi
+	@$(IVERILOG) $(VERILOG_STD) -o $@ $(CACHE_RTL) $(MEMORY_RTL) $(CACHE_TB)
+	@echo "$(GREEN)✓ Cache compilation successful!$(NC)"
+
+.PHONY: cache-wave
+cache-wave:
+	@if [ -f cache.vcd ]; then \
+		echo "$(BLUE)Opening cache waveform viewer...$(NC)"; \
+		$(WAVEFORM_VIEWER) cache.vcd & \
+	else \
+		echo "$(RED)Error: No cache waveform file found. Run 'make cache' first.$(NC)"; \
+		exit 1; \
+	fi
 
 #=============================================================================
 # Verification Targets
@@ -225,7 +263,7 @@ run: $(SIM)
 wave:
 	@if [ -f hart.vcd ]; then \
 		echo "$(BLUE)Opening waveform viewer...$(NC)"; \
-		$(GTKWAVE) hart.vcd & \
+		$(WAVEFORM_VIEWER) hart.vcd & \
 	else \
 		echo "$(RED)Error: No waveform file found. Run a test first.$(NC)"; \
 		exit 1; \
@@ -320,7 +358,9 @@ submit:
 clean:
 	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
 	@rm -f $(SIM)
+	@rm -f $(CACHE_SIM)
 	@rm -f hart.vcd
+	@rm -f cache.vcd
 	@rm -f *.log
 	@rm -f *.vcd
 	@rm -f verilator_lint.log
@@ -361,6 +401,10 @@ help:
 	@echo "  make test-branch   - Run all branch tests"
 	@echo "  make test-memory   - Run memory operation tests"
 	@echo "  make test-shift    - Run shift instruction tests"
+	@echo ""
+	@echo "$(YELLOW)Cache Targets:$(NC)"
+	@echo "  make cache         - Compile and run cache testbench"
+	@echo "  make cache-wave    - Open cache waveform viewer (GTKWave)"
 	@echo ""
 	@echo "$(YELLOW)Available Individual Tests:$(NC)"
 	@for test in $(TEST_NAMES); do \
@@ -429,4 +473,4 @@ info:
 .SUFFIXES:
 
 # Ensure these targets always run
-.PHONY: all compile verify lint test run wave stats cpi-analysis clean distclean help list-tests info
+.PHONY: all compile verify lint test run wave stats cpi-analysis clean distclean help list-tests info cache cache-wave
