@@ -17,7 +17,6 @@ module cache (
     output wire [31:0] o_mem_wdata,
     input  wire [31:0] i_mem_rdata,
     input  wire        i_mem_valid,
-    input  wire        i_mem_wdone,
     // Interface to CPU hart. This is nearly identical to the phase 5 hart memory
     // interface, but includes a stall signal (`o_busy`), and the input/output
     // polarities are swapped for obvious reasons.
@@ -168,7 +167,7 @@ module cache (
             end
 
             STATE_WRITE_MEM: begin
-                if (i_mem_wdone) begin
+                if (i_mem_ready) begin
                     next_state = STATE_READ_LINE;
                 end
             end
@@ -254,7 +253,7 @@ module cache (
                 end
 
                 STATE_WRITE_MEM: begin
-                    if (i_mem_wdone) begin
+                    if (i_mem_ready) begin
                         // Write is done.
                         // The state machine will transition to READ_LINE automatically.
                         // We must trigger the Read for Word 0 immediately here.
