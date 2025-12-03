@@ -36,7 +36,10 @@ module hart #(
     // INSTRUCTION MEMORY INTERFACE
     //=========================================================================
     output wire [31:0] o_imem_raddr,       // Instruction memory read address
+    output wire        o_imem_ren,         // Instruction memory read enable
     input  wire [31:0] i_imem_rdata,       // Instruction word from memory
+    input  wire        i_imem_ready,       // Instruction memory ready signal
+    input  wire        i_imem_valid,       // Instruction memory valid signal
 
     //=========================================================================
     // DATA MEMORY INTERFACE
@@ -47,6 +50,8 @@ module hart #(
     output wire [31:0] o_dmem_wdata,       // Data to write to memory
     output wire [ 3:0] o_dmem_mask,        // Byte mask for sub-word accesses
     input  wire [31:0] i_dmem_rdata,       // Data read from memory
+    input  wire        i_dmem_ready,       // Data memory ready signal
+    input  wire        i_dmem_valid,       // Data memory valid signal
 
     //=========================================================================
     // INSTRUCTION RETIRE INTERFACE (Verification/Debug)
@@ -217,6 +222,10 @@ module hart #(
         .i_mem_rd(ex_mem_rd_reg),                // Use registered EX/MEM value
         .i_mem_reg_write(ex_mem_reg_write_reg),  // Use registered EX/MEM value
         .i_mem_mem_read(ex_mem_mem_to_reg_reg),  // Use registered EX/MEM value
+        .i_imem_ready(i_imem_ready),
+        .i_dmem_ready(i_dmem_ready),
+        .i_imem_valid(i_imem_valid),
+        .i_dmem_valid(i_dmem_valid),
         .i_rst_stall(rst_stall),
         .o_stall_pc(stall_pc),
         .o_stall_if_id(stall_if_id),
@@ -254,7 +263,12 @@ module hart #(
         .i_pc_redirect(next_pc_sel),
         .i_pc_redirect_target(next_pc),
         .o_imem_raddr(o_imem_raddr),
+        .o_imem_ren(o_imem_ren),
         .i_imem_rdata(i_imem_rdata),
+        .i_imem_valid(i_imem_valid),
+        .i_imem_ready(i_imem_ready),
+        .i_dmem_valid(i_dmem_valid),
+        .i_dmem_ready(i_dmem_ready),
         .o_inst(if_id_inst),
         .o_fetch_pc(if_id_fetch_pc),
         .o_pc_plus_4(if_id_pc_plus_4)
@@ -274,6 +288,9 @@ module hart #(
         .i_stall_if_id(stall_if_id),
         .i_flush_if_id(flush_if_id),
         .i_rst_stall(bubble_id_ex),          // Use bubble signal for ID/EX stall
+        .i_dmem_ready(i_dmem_ready),
+        .i_imem_valid(i_imem_valid),
+        .i_dmem_valid(i_dmem_valid),
         .i_wb_rd(wb_rd),
         .i_wb_rd_data(wb_rd_data),
         .i_wb_reg_write(wb_reg_write),
@@ -425,7 +442,9 @@ module hart #(
         .o_dmem_wen(o_dmem_wen),
         .o_dmem_wdata(o_dmem_wdata),
         .o_dmem_mask(o_dmem_mask),
-        .i_dmem_rdata(i_dmem_rdata),
+        .i_dmem_rdata(i_dmem_rdata), 
+        .i_dmem_valid(i_dmem_valid),
+        .i_dmem_ready(i_dmem_ready), 
         // Forwarding outputs (registered EX/MEM values)
         .o_ex_mem_alu_result_reg(ex_mem_alu_result_reg),
         .o_ex_mem_rd_reg(ex_mem_rd_reg),

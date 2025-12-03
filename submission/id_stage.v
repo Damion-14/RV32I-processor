@@ -38,6 +38,9 @@ module id_stage #(
     input  wire        i_stall_if_id,      // Stall IF/ID pipeline register
     input  wire        i_flush_if_id,      // Flush IF/ID pipeline register
     input  wire        i_rst_stall,        // Reset stall signal
+    input  wire        i_dmem_ready,       // Data memory ready signal
+    input  wire        i_imem_valid,       // Instruction memory ready signal
+    input  wire        i_dmem_valid,       // Data memory valid signal
 
     //=========================================================================
     // REGISTER FILE WRITE-BACK (from WB stage)
@@ -127,7 +130,7 @@ module id_stage #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
-        end else if (i_stall_if_id) begin
+        end else if (i_stall_if_id | !i_imem_valid) begin
             // Hold current values during stall
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
@@ -364,6 +367,32 @@ module id_stage #(
             o_is_jalr       <= 1'b0;
             o_is_branch     <= 1'b0;
             o_branch_target <= 32'b0;
+        end else if (!i_dmem_ready || !i_dmem_valid) begin
+            // Stall if memory not ready
+            o_pc            <= o_pc;            
+            o_rs1_data      <= o_rs1_data;      
+            o_rs2_data      <= o_rs2_data;      
+            o_imm           <= o_imm;           
+            o_rs1           <= o_rs1;           
+            o_rs2           <= o_rs2;           
+            o_rd            <= o_rd;             
+            o_alu_op        <= o_alu_op;        
+            o_bj_type       <= o_bj_type;       
+            o_alu_src       <= o_alu_src;       
+            o_mem_read      <= o_mem_read;      
+            o_mem_write     <= o_mem_write;     
+            o_mem_to_reg    <= o_mem_to_reg;    
+            o_reg_write     <= o_reg_write;      
+            o_opcode        <= o_opcode;         
+            o_pc_plus_4     <= o_pc_plus_4;     
+            o_funct3        <= o_funct3;        
+            o_funct7        <= o_funct7;        
+            o_inst          <= o_inst;           
+            o_valid         <= o_valid;          
+            o_is_jal        <= o_is_jal;        
+            o_is_jalr       <= o_is_jalr;       
+            o_is_branch     <= o_is_branch;     
+            o_branch_target <= o_branch_target; 
         end else if (i_rst_stall) begin
             // Insert bubble: set all control signals to create a NOP
             o_pc            <= if_id_pc;

@@ -58,6 +58,8 @@ module mem_stage (
     output wire [31:0] o_dmem_wdata,       // Data to write to memory
     output wire [ 3:0] o_dmem_mask,        // Byte mask for sub-word accesses
     input  wire [31:0] i_dmem_rdata,       // Data read from memory
+    input  wire        i_dmem_valid,       // Data memory valid signal
+    input  wire        i_dmem_ready,       // Data memory ready signal
 
     //=========================================================================
     // OUTPUTS FOR FORWARDING (registered EX/MEM values)
@@ -158,6 +160,31 @@ module mem_stage (
             ex_mem_next_pc       <= 32'b0;
             ex_mem_branch_target <= 32'b0;
             ex_mem_imm           <= 32'b0;
+        end else if (!i_dmem_ready | !i_dmem_valid) begin
+            ex_mem_alu_result    <= ex_mem_alu_result;   
+            ex_mem_rs2_data      <= ex_mem_rs2_data;     
+            ex_mem_rs1_data      <= ex_mem_rs1_data;     
+            ex_mem_opcode        <= ex_mem_opcode;       
+            ex_mem_pc_plus_4     <= ex_mem_pc_plus_4;    
+            ex_mem_mem_read      <= ex_mem_mem_read;     
+            ex_mem_mem_write     <= ex_mem_mem_write;    
+            ex_mem_mem_to_reg    <= ex_mem_mem_to_reg;   
+            ex_mem_reg_write     <= ex_mem_reg_write;    
+            ex_mem_rd            <= ex_mem_rd;           
+            ex_mem_pc            <= ex_mem_pc;           
+            ex_mem_rs1           <= ex_mem_rs1;          
+            ex_mem_rs2           <= ex_mem_rs2;          
+            ex_mem_funct3        <= ex_mem_funct3;       
+            ex_mem_funct7        <= ex_mem_funct7;       
+            ex_mem_is_jal        <= ex_mem_is_jal;       
+            ex_mem_is_jalr       <= ex_mem_is_jalr;      
+            ex_mem_is_branch     <= ex_mem_is_branch;    
+            ex_mem_is_store      <= ex_mem_is_store;     
+            ex_mem_inst          <= ex_mem_inst;         
+            ex_mem_valid         <= ex_mem_valid;        
+            ex_mem_next_pc       <= ex_mem_next_pc;      
+            ex_mem_branch_target <= ex_mem_branch_target;
+            ex_mem_imm           <= ex_mem_imm;          
         end else begin
             ex_mem_alu_result    <= i_alu_result;
             ex_mem_rs2_data      <= i_rs2_data;

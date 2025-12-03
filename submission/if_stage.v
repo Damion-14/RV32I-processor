@@ -28,12 +28,18 @@ module if_stage #(
     input  wire        i_stall_pc,         // Stall PC update (from hazard unit)
     input  wire        i_pc_redirect,      // Override PC with branch/jump target
     input  wire [31:0] i_pc_redirect_target, // Branch/jump target from ID stage
+    
 
     //=========================================================================
     // INSTRUCTION MEMORY INTERFACE
     //=========================================================================
     output wire [31:0] o_imem_raddr,       // Instruction memory read address
+    output wire        o_imem_ren,         // Instruction memory read enable
     input  wire [31:0] i_imem_rdata,       // Instruction word from memory
+    input  wire        i_imem_valid,       // Instruction memory valid signal
+    input  wire        i_imem_ready,       // Instruction memory ready signal
+    input  wire        i_dmem_valid,       // Data memory valid signal
+    input  wire        i_dmem_ready,       // Data memory ready signal
 
     //=========================================================================
     // OUTPUTS TO ID STAGE
@@ -59,7 +65,7 @@ module if_stage #(
     always @(posedge i_clk) begin
         if (i_rst) begin
             fetch_pc <= RESET_ADDR;
-        end else if (!i_stall_pc) begin
+        end else if (!i_stall_pc | i_imem_valid | i_dmem_valid ) begin
             fetch_pc <= pc;                // Address driven to imem this cycle
         end else begin
             fetch_pc <= fetch_pc;          // Hold during stall
@@ -67,14 +73,15 @@ module if_stage #(
     end
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
-    assign o_imem_raddr = (i_stall_pc) ? fetch_pc : pc;  // Send current PC to instruction memory
+    // Consider ready+valid handshake: advance/freeze based on completion of memory transactions
+    assign o_imem_raddr = (i_stall_pc | !i_imem_valid | !i_dmem_valid) ? fetch_pc : pc;  // Send current PC to instruction memory
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
     always @(posedge i_clk) begin
         if (i_rst) begin
             pc <= RESET_ADDR;              // Reset PC to specified address
-        end else if (!i_stall_pc) begin
+        end else if (!i_stall_pc | i_imem_valid  | i_dmem_valid ) begin
             pc <= i_pc_redirect ? i_pc_redirect_target
                                  : pc_plus_4;         // Default sequential PC+4
         end
@@ -84,6 +91,7 @@ module if_stage #(
     //=========================================================================
     // OUTPUTS
     //=========================================================================
+    assign o_imem_ren = 1; // Read enable when not stalled
     assign o_inst      = i_imem_rdata;     // Pass through instruction from memory
     assign o_fetch_pc  = fetch_pc;         // PC corresponding to current instruction
     assign o_pc_plus_4 = fetch_pc + 32'd4; // Next sequential PC
