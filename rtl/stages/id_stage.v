@@ -37,7 +37,8 @@ module id_stage #(
     //=========================================================================
     input  wire        i_stall_if_id,      // Stall IF/ID pipeline register
     input  wire        i_flush_if_id,      // Flush IF/ID pipeline register
-    input  wire        i_rst_stall,        // Reset stall signal
+    input  wire        i_rst_stall,        // Insert bubble into ID/EX (load-use)
+    input  wire        i_stall_id_ex,      // Hold ID/EX pipeline register
 
     //=========================================================================
     // REGISTER FILE WRITE-BACK (from WB stage)
@@ -364,6 +365,8 @@ module id_stage #(
             o_is_jalr       <= 1'b0;
             o_is_branch     <= 1'b0;
             o_branch_target <= 32'b0;
+        end else if (i_stall_id_ex) begin
+            // Hold current ID/EX state (e.g., structural/data cache stall)
         end else if (i_rst_stall) begin
             // Insert bubble: set all control signals to create a NOP
             o_pc            <= if_id_pc;

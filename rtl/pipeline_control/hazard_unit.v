@@ -22,6 +22,7 @@ module hazard_unit (
     input  wire [4:0]  i_id_rs1,
     input  wire [4:0]  i_id_rs2,
     input  wire        i_id_valid,
+    input  wire        i_icache_busy,
 
     // Branch/jump signals from ID stage
     input  wire        i_id_is_branch,     // Is ID stage instruction a branch?

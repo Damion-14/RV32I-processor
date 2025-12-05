@@ -8,6 +8,11 @@ module hart_tb ();
     wire        dmem_ren, dmem_wen;
     wire [31:0] dmem_wdata;
     wire [ 3:0] dmem_mask;
+    wire        imem_ren;
+    wire        imem_ready;
+    wire        dmem_ready;
+    reg         imem_valid;
+    reg         dmem_valid;
 
     // Instruction retire interface.
     wire        valid, trap, halt;
@@ -29,13 +34,18 @@ module hart_tb ();
         .i_clk        (clk),
         .i_rst        (rst),
         .o_imem_raddr (imem_raddr),
+        .o_imem_ren   (imem_ren),
         .i_imem_rdata (imem_rdata),
+        .i_imem_ready (imem_ready),
+        .i_imem_valid (imem_valid),
         .o_dmem_addr  (dmem_addr),
         .o_dmem_ren   (dmem_ren),
         .o_dmem_wen   (dmem_wen),
         .o_dmem_wdata (dmem_wdata),
         .o_dmem_mask  (dmem_mask),
         .i_dmem_rdata (dmem_rdata),
+        .i_dmem_ready (dmem_ready),
+        .i_dmem_valid (dmem_valid),
         .o_retire_valid     (valid),
         .o_retire_inst      (inst),
         .o_retire_trap      (trap),
@@ -60,18 +70,22 @@ module hart_tb ();
     reg [7:0] imem [0:1023];
     reg [7:0] dmem [0:1023];
 
-    // Instruction memory read.
+    assign imem_ready = 1'b1;
+    assign dmem_ready = 1'b1;
+
+    // Instruction memory read (synchronous, one-cycle latency).
     always @(posedge clk) begin
-        imem_rdata <= {imem[imem_raddr + 3], imem[imem_raddr + 2], imem[imem_raddr + 1], imem[imem_raddr + 0]};
+        imem_valid <= imem_ren & imem_ready;
+        if (imem_ren & imem_ready)
+            imem_rdata <= {imem[imem_raddr + 3], imem[imem_raddr + 2], imem[imem_raddr + 1], imem[imem_raddr + 0]};
     end
 
     // Data memory read. Masks are ignored since it is always safe
     // to access the full bytes in this memory.
     always @(posedge clk) begin
-        if (dmem_ren)
+        dmem_valid <= dmem_ren & dmem_ready;
+        if (dmem_ren & dmem_ready)
             dmem_rdata <= {dmem[dmem_addr + 3], dmem[dmem_addr + 2], dmem[dmem_addr + 1], dmem[dmem_addr + 0]};
-        else
-            dmem_rdata <= 32'h0;
     end
 
     // Synchronous data memory write. Masks must be respected.
@@ -92,6 +106,10 @@ module hart_tb ();
     initial begin
         clk = 1;
         rst = 0;
+        imem_rdata = 32'h0;
+        dmem_rdata = 32'h0;
+        imem_valid = 1'b0;
+        dmem_valid = 1'b0;
 
         // Open the waveform file.
         $dumpfile("hart.vcd");
@@ -99,7 +117,7 @@ module hart_tb ();
 
         // Load the test program into memory at address 0.
         $display("Loading program.");
-        $readmemh("tb/program.mem", imem);
+        $readmemh("C:\\Users\\milo\\ece552\\RV32I-processor\\tb\\program.mem", imem);
 
         // Reset the dut.
         $display("Resetting hart.");
