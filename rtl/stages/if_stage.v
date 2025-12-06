@@ -68,20 +68,26 @@ module if_stage #(
     reg  [31:0] pc;
     wire [31:0] pc_plus_4;
 
-    // The testbench models imem as synchronous (1-cycle latency). The instruction
-    // observed on 'inst' corresponds to the address presented on 'o_imem_raddr'
-    // in the previous cycle. Track that address so we can align IF/ID.pc with
-    // the arriving instruction correctly.
-    reg [31:0] fetch_pc;                   // PC used for the instruction arriving this cycle
+    // Track the PC associated with the instruction currently being presented
+    // to the ID stage so we can keep the frontend frozen while the cache
+    // services a miss (the cache contract requires the CPU to hold request
+    // signals steady while `o_busy` is asserted).
+    reg [31:0] fetch_pc;
+    reg [31:0] inst_q;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
             fetch_pc <= RESET_ADDR;
+            inst_q   <= 32'h00000013;      // Treat reset like a NOP bubble
         end else if (!i_stall_pc) begin
-            fetch_pc <= pc;                // Address driven to imem this cycle
-        end else begin
-            fetch_pc <= fetch_pc;          // Hold during stall
+            // `icache_req_addr_q` still holds the address of the most recent
+            // request until the next one fires, so it lines up with the data
+            // we are about to accept into IF/ID. Holding on stalls keeps the
+            // request address stable per the cache handshake requirements.
+            fetch_pc <= icache_req_addr_q;
+            inst_q   <= cache_rdata;
         end
+        // Hold the previous instruction/PC whenever the frontend is stalled.
     end
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
@@ -165,7 +171,7 @@ module if_stage #(
     //=========================================================================
     // OUTPUTS
     //=========================================================================
-    assign o_inst        = cache_rdata;      // Instruction from cache (hit or filled miss)
+    assign o_inst        = inst_q;           // Registered instruction from cache
     assign o_fetch_pc    = fetch_pc;         // PC corresponding to current instruction
     assign o_pc_plus_4   = fetch_pc + 32'd4; // Next sequential PC
     assign o_cache_busy  = cache_busy;

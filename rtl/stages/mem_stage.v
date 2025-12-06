@@ -142,6 +142,7 @@ module mem_stage (
     wire [31:0] dcache_rdata;
     wire        dcache_busy;
     reg         dcache_waiting;
+    reg  [31:0] dcache_req_addr_q;
 
     // EX/MEM Pipeline Register
     always @(posedge i_clk) begin
@@ -327,17 +328,24 @@ module mem_stage (
         //=========================================================================
         wire mem_access_valid;
         wire dcache_req_fire;
+        wire [31:0] dcache_req_addr;
 
         assign mem_access_valid = ex_mem_valid && (ex_mem_mem_read | ex_mem_mem_write);
         assign dcache_req_fire  = mem_access_valid && !dcache_waiting;
+        assign dcache_req_addr  = dcache_waiting ? dcache_req_addr_q : cpu_dmem_addr_aligned;
 
         always @(posedge i_clk) begin
             if (i_rst) begin
                 dcache_waiting <= 1'b0;
+                dcache_req_addr_q <= 32'b0;
             end else if (!dcache_busy) begin
                 dcache_waiting <= 1'b0;
             end else if (dcache_req_fire) begin
                 dcache_waiting <= 1'b1;
+            end
+
+            if (dcache_req_fire) begin
+                dcache_req_addr_q <= cpu_dmem_addr_aligned;
             end
         end
 
@@ -352,7 +360,7 @@ module mem_stage (
             .i_mem_rdata (i_dmem_rdata),
             .i_mem_valid (i_dmem_valid),
             .o_busy      (dcache_busy),
-            .i_req_addr  (cpu_dmem_addr_aligned),
+            .i_req_addr  (dcache_req_addr),
             .i_req_ren   (dcache_req_fire && ex_mem_mem_read),
             .i_req_wen   (dcache_req_fire && ex_mem_mem_write),
             .i_req_mask  (dmem_mask),

@@ -201,14 +201,7 @@ module hart #(
     wire        stall_id_ex;
     wire [1:0]  forward_a, forward_b;
 
-    // Reset stall signal
-    reg         rst_store;
-    wire        rst_stall;
-
-    always @(posedge i_clk) begin
-        rst_store <= i_rst;
-    end
-    assign rst_stall = rst_store;
+    
 
     //=========================================================================
     // HAZARD DETECTION UNIT
@@ -226,7 +219,6 @@ module hart #(
         .i_mem_rd(ex_mem_rd_reg),                // Use registered EX/MEM value
         .i_mem_reg_write(ex_mem_reg_write_reg),  // Use registered EX/MEM value
         .i_mem_mem_read(ex_mem_mem_to_reg_reg),  // Use registered EX/MEM value
-        .i_rst_stall(rst_stall),
         .i_icache_busy(if_cache_busy),
         .o_stall_pc(hazard_stall_pc),
         .o_stall_if_id(hazard_stall_if_id),

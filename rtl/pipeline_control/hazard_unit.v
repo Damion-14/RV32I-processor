@@ -37,7 +37,6 @@ module hazard_unit (
     input  wire [4:0]  i_mem_rd,
     input  wire        i_mem_reg_write,
     input  wire        i_mem_mem_read,
-    input  wire        i_rst_stall,
 
     // Control outputs
     output wire        o_stall_pc,         // Stall program counter
@@ -103,8 +102,8 @@ module hazard_unit (
     // - Insert a bubble (NOP) into the ID/EX register
 
     assign o_stall_pc    = load_use_hazard | branch_load_hazard;
-    assign o_stall_if_id = load_use_hazard | branch_load_hazard | i_rst_stall;
-    assign o_bubble_id_ex = load_use_hazard | branch_load_hazard | i_rst_stall;
+    assign o_stall_if_id = load_use_hazard | branch_load_hazard;
+    assign o_bubble_id_ex = load_use_hazard | branch_load_hazard;
 
 endmodule
 
