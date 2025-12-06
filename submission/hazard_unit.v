@@ -105,9 +105,14 @@ module hazard_unit (
     // When a load-use hazard is detected:
     // - Stall IF and ID stages (hold PC and IF/ID register)
     // - Insert a bubble (NOP) into the ID/EX register
+    //
+    // Memory stall conditions:
+    // - When instruction memory signals indicate not ready
+    // - When data memory signals indicate not ready
+    // Note: We assume memory is ready by default (typical for uninitialized signals)
 
-    assign o_stall_pc    = load_use_hazard | branch_load_hazard | !i_imem_ready | !i_dmem_ready;
-    assign o_stall_if_id = load_use_hazard | branch_load_hazard | i_rst_stall | !i_imem_ready | !i_dmem_ready | !i_imem_valid | !i_dmem_valid;
+    assign o_stall_pc    = load_use_hazard | branch_load_hazard | (~i_imem_ready & i_imem_valid) | (~i_dmem_ready & i_dmem_valid);
+    assign o_stall_if_id = load_use_hazard | branch_load_hazard | i_rst_stall | (~i_imem_ready & i_imem_valid) | (~i_dmem_ready & i_dmem_valid);
     assign o_bubble_id_ex = load_use_hazard | branch_load_hazard | i_rst_stall;
 
 endmodule

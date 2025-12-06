@@ -160,7 +160,8 @@ module mem_stage (
             ex_mem_next_pc       <= 32'b0;
             ex_mem_branch_target <= 32'b0;
             ex_mem_imm           <= 32'b0;
-        end else if (!i_dmem_ready | !i_dmem_valid) begin
+        end else if ((~i_dmem_ready) & i_dmem_valid) begin
+            // Stall if data memory not ready, but only if memory has signaled validity
             ex_mem_alu_result    <= ex_mem_alu_result;   
             ex_mem_rs2_data      <= ex_mem_rs2_data;     
             ex_mem_rs1_data      <= ex_mem_rs1_data;     
