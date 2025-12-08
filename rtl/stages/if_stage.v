@@ -41,6 +41,7 @@ module if_stage #(
     //=========================================================================
     // OUTPUTS TO ID STAGE
     //=========================================================================
+    output wire        o_inst_valid,        // Instruction valid signal
     output wire [31:0] o_inst,             // Current instruction word
     output wire [31:0] o_fetch_pc,         // PC of instruction arriving this cycle
     output wire [31:0] o_pc_plus_4,         // PC + 4 for sequential execution
@@ -55,11 +56,16 @@ module if_stage #(
     wire [31:0] cache_mem_addr;
     wire        cache_mem_ren;
 
-    // Track when a miss is in-flight so we only assert i_req_ren once
-    reg         icache_waiting;
-    reg  [31:0] icache_req_addr_q;
-    wire        cache_req_fire;
-    wire [31:0] cache_req_addr;
+    reg         cache_waiting;            // Outstanding miss in flight
+    reg  [31:0] cache_req_addr_q;         // Address associated with request
+    reg         drop_resp;                // Drop next cache response (redirect issued)
+    reg         inst_valid_q;             // Buffered instruction valid flag
+
+    wire        cache_req_fire;           // Asserted when a new request should issue
+    wire [31:0] cache_req_addr;           // Address presented to the cache
+    wire        cache_resp_valid;         // Cache returned a word this cycle
+    wire [31:0] resp_pc;                  // PC associated with cache response
+    wire        pc_hold;                  // Local hold signal for the PC
 
     //=========================================================================
     // PROGRAM COUNTER LOGIC
@@ -77,31 +83,39 @@ module if_stage #(
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            fetch_pc <= RESET_ADDR;
-            inst_q   <= 32'h00000013;      // Treat reset like a NOP bubble
-        end else if (!i_stall_pc) begin
-            // `icache_req_addr_q` still holds the address of the most recent
-            // request until the next one fires, so it lines up with the data
-            // we are about to accept into IF/ID. Holding on stalls keeps the
-            // request address stable per the cache handshake requirements.
-            fetch_pc <= icache_req_addr_q;
-            inst_q   <= cache_rdata;
+            fetch_pc     <= RESET_ADDR;
+            inst_q       <= 32'h00000013;      // Treat reset like a NOP bubble
+            inst_valid_q <= 1'b0;
+        end else begin
+            if (cache_resp_valid && !drop_resp) begin
+                fetch_pc     <= resp_pc;
+                inst_q       <= cache_rdata;
+                inst_valid_q <= 1'b1;
+            end else if (!i_stall_pc && inst_valid_q) begin
+                inst_valid_q <= 1'b0;          // ID consumed buffered instruction
+            end
+
+            if (i_pc_redirect) begin
+                inst_valid_q <= 1'b0;          // Flush buffered instruction on redirect
+            end
         end
-        // Hold the previous instruction/PC whenever the frontend is stalled.
+        // Hold the previous instruction/PC whenever no new word is ready.
     end
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
+    assign pc_hold   = i_stall_pc || cache_waiting || inst_valid_q;
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
     always @(posedge i_clk) begin
         if (i_rst) begin
             pc <= RESET_ADDR;              // Reset PC to specified address
-        end else if (!i_stall_pc) begin
-            pc <= i_pc_redirect ? i_pc_redirect_target
-                                 : pc_plus_4;         // Default sequential PC+4
+        end else if (i_pc_redirect) begin
+            pc <= i_pc_redirect_target;    // Immediate redirect has priority
+        end else if (!pc_hold) begin
+            pc <= pc_plus_4;               // Default sequential PC+4
         end
-        // else: PC holds its current value during stall
+        // else: PC holds its current value during stall or while buffer busy
     end
 
 
@@ -109,40 +123,40 @@ module if_stage #(
     //=========================================================================
     // INSTRUCTION CACHE REQUEST CONTROL
     //=========================================================================
-    // Delay the stall signal by one cycle for the cache request fire logic to
-    // avoid a combinational loop between the cache busy flag -> stall_pc ->
-    // cache_req_fire path. The immediate (combinational) stall signal still
-    // feeds the PC update logic directly above.
-    reg stall_pc_q;
 
+    assign cache_req_fire   = !inst_valid_q && !cache_waiting && !i_rst;
+    assign cache_req_addr   = cache_waiting ? cache_req_addr_q : pc;
+    assign cache_resp_valid = !cache_busy && (cache_waiting || cache_req_fire);
+    assign resp_pc          = cache_req_addr_q;
+
+    assign o_inst_valid = inst_valid_q;
+
+    // Track outstanding miss state, request address, and redirect drops
     always @(posedge i_clk) begin
         if (i_rst) begin
-            stall_pc_q <= 1'b0;
+            cache_waiting    <= 1'b0;
+            cache_req_addr_q <= RESET_ADDR;
+            drop_resp        <= 1'b0;
         end else begin
-            stall_pc_q <= i_stall_pc;
-        end
-    end
-
-    assign cache_req_fire = !stall_pc_q && !icache_waiting;
-    assign cache_req_addr = icache_waiting ? icache_req_addr_q : pc;
-
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            icache_waiting     <= 1'b0;
-            icache_req_addr_q  <= RESET_ADDR;
-        end else begin
-            if (!cache_busy) begin
-                icache_waiting <= 1'b0;
-            end else if (cache_req_fire) begin
-                icache_waiting <= 1'b1;
-            end
-
             if (cache_req_fire) begin
-                icache_req_addr_q <= pc;
+                cache_req_addr_q <= pc;       // Remember address of newest request
+            end
+
+            if (cache_resp_valid) begin
+                cache_waiting <= 1'b0;
+                drop_resp     <= 1'b0;
+            end else if (cache_req_fire && cache_busy) begin
+                cache_waiting <= 1'b1;        // Miss detected, wait for fill
+            end
+
+            if (i_pc_redirect && (cache_waiting || cache_req_fire)) begin
+                drop_resp <= 1'b1;            // Discard in-flight response on redirect
             end
         end
     end
 
+
+    
     //=========================================================================
     // INSTRUCTION CACHE
     //=========================================================================

@@ -93,6 +93,7 @@ module hart #(
     wire        if_id_is_branch;
     wire        if_id_is_jalr;
     wire        if_id_valid;
+    wire        if_inst_valid;
     wire        if_cache_busy;
     wire        mem_cache_busy;
 
@@ -263,6 +264,7 @@ module hart #(
         .i_stall_pc(stall_pc),
         .i_pc_redirect(next_pc_sel),
         .i_pc_redirect_target(next_pc),
+        .o_inst_valid(if_inst_valid),
         .o_imem_raddr(o_imem_raddr),
         .o_imem_ren(o_imem_ren),
         .i_imem_rdata(i_imem_rdata),
@@ -285,6 +287,7 @@ module hart #(
         .i_inst(if_id_inst),
         .i_fetch_pc(if_id_fetch_pc),
         .i_pc_plus_4(if_id_pc_plus_4),
+        .i_if_inst_valid(if_inst_valid),
         .i_stall_if_id(stall_if_id),
         .i_flush_if_id(flush_if_id),
         .i_rst_stall(bubble_id_ex),          // Use bubble signal for ID/EX stall

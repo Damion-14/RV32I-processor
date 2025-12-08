@@ -31,6 +31,7 @@ module id_stage #(
     input  wire [31:0] i_inst,             // Instruction from IF stage
     input  wire [31:0] i_fetch_pc,         // PC from IF stage
     input  wire [31:0] i_pc_plus_4,        // PC+4 from IF stage
+    input  wire        i_if_inst_valid,    // IF stage instruction valid flag
 
     //=========================================================================
     // PIPELINE CONTROL SIGNALS
@@ -139,7 +140,7 @@ module id_stage #(
             if_id_inst    <= i_inst;
             if_id_pc      <= i_fetch_pc;
             if_id_next_pc <= i_pc_plus_4;
-            if_id_valid   <= 1'b1;
+            if_id_valid   <= i_if_inst_valid;
         end
     end
 
