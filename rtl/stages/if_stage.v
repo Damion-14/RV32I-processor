@@ -80,6 +80,28 @@ module if_stage #(
     // signals steady while `o_busy` is asserted).
     reg [31:0] fetch_pc;
     reg [31:0] inst_q;
+    reg valid_blanking;
+    reg cache_waiting_1;
+
+    always @(posedge i_clk) begin
+        if(i_rst) begin
+            cache_waiting_1 <= 1'b0;
+        end else
+            cache_waiting_1 <= cache_waiting;
+    end
+
+    always @(negedge cache_waiting or posedge i_clk) begin
+        if (i_rst) begin
+            valid_blanking <= 1'b0;
+        end else begin
+            if (cache_waiting_1 && !cache_waiting) begin
+                valid_blanking <= 1'b1;
+        end else begin
+                valid_blanking <= 1'b0;
+        end
+    end
+    end
+
 
     always @(posedge i_clk) begin
         if (i_rst) begin
@@ -87,7 +109,7 @@ module if_stage #(
             inst_q       <= 32'h00000013;      // Treat reset like a NOP bubble
             inst_valid_q <= 1'b0;
         end else begin
-            if (cache_resp_valid && !drop_resp) begin
+            if (cache_resp_valid && !drop_resp && !valid_blanking) begin
                 fetch_pc     <= resp_pc;
                 inst_q       <= cache_rdata;
                 inst_valid_q <= 1'b1;
