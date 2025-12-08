@@ -127,7 +127,7 @@ module if_stage #(
     assign cache_req_fire   = !inst_valid_q && !cache_waiting && !i_rst;
     assign cache_req_addr   = cache_waiting ? cache_req_addr_q : pc;
     assign cache_resp_valid = !cache_busy && (cache_waiting || cache_req_fire);
-    assign resp_pc          = cache_req_addr_q;
+    assign resp_pc          = cache_waiting ? cache_req_addr_q : pc;
 
     assign o_inst_valid = inst_valid_q;
 

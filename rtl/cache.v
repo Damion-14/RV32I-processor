@@ -118,6 +118,8 @@ module cache (
 
     reg [1:0] state, next_state;
     reg [1:0] word_counter;
+    reg [31:0] line_base_addr;   // Aligned base address of the line being filled
+    reg [2:0] words_requested;   // Number of 32-bit words requested for current line
     reg write_way;  // Which way to write to on miss
 
     // Output busy signal
@@ -131,11 +133,13 @@ module cache (
     // Memory interface outputs
     reg mem_ren_reg, mem_wen_reg;
     reg [31:0] mem_addr_reg, mem_wdata_reg;
+    wire       mem_request_fire;
 
     assign o_mem_ren = mem_ren_reg;
     assign o_mem_wen = mem_wen_reg;
     assign o_mem_addr = mem_addr_reg;
     assign o_mem_wdata = mem_wdata_reg;
+    assign mem_request_fire = mem_ren_reg && i_mem_ready;
 
     // FSM state transitions
     always @(posedge i_clk) begin
@@ -196,6 +200,24 @@ module cache (
         end
     end
 
+    // Track base address and outstanding read requests for cache line fills
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            line_base_addr  <= 32'd0;
+            words_requested <= 3'd0;
+        end else begin
+            if (state == STATE_IDLE) begin
+                words_requested <= 3'd0;
+                if ((i_req_ren || i_req_wen) && !cache_hit) begin
+                    line_base_addr <= {i_req_addr[31:O], {O{1'b0}}};
+                end
+            end else if (mem_request_fire && (words_requested < 3'd4)) begin
+                words_requested <= words_requested + 1'b1;
+            end
+        end
+    end
+
+reg [2:0] next_req_index;
     // Memory interface control
     always @(posedge i_clk) begin
         if (i_rst) begin
@@ -206,6 +228,9 @@ module cache (
         end else begin
             mem_ren_reg <= 1'b0;
             mem_wen_reg <= 1'b0;
+
+            
+            next_req_index = words_requested + (mem_request_fire ? 3'd1 : 3'd0);
 
             case (state)
                 STATE_IDLE: begin
@@ -218,10 +243,10 @@ module cache (
                                 mem_wdata_reg <= i_req_wdata;
                             end
                         end else begin
-                            // Read miss: start reading cache line (Request Word 0)
+                            // Read miss: capture aligned base address and issue first read
+                            mem_addr_reg <= {i_req_addr[31:O], {O{1'b0}}};
                             if (i_mem_ready) begin
                                 mem_ren_reg <= 1'b1;
-                                mem_addr_reg <= {i_req_addr[31:O], {O{1'b0}}};
                             end
                         end
                     end else if (cache_hit && i_req_wen) begin
@@ -235,20 +260,10 @@ module cache (
                 end
 
                 STATE_READ_LINE: begin
-                    // We have received data (valid is high), so the counter is about to increment.
-                    // We must fire the request for the NEXT word (counter + 1).
-                    // We request words 1, 2, and 3 here.
-                    if (i_mem_ready) begin
-                        if (word_counter == 2'd0 && !i_mem_valid) begin
-                            // First read not yet issued (memory wasn't ready in previous state)
-                            mem_ren_reg <= 1'b1;
-                            // Address already set up, keep it
-                        end else if (i_mem_valid && word_counter < 2'd3) begin
-                            // Received data for current word, request next word
-                            mem_ren_reg <= 1'b1;
-                            // Use the current address tag, but update the word offset
-                            mem_addr_reg <= {mem_addr_reg[31:O], word_counter + 1'b1, 2'b00};
-                        end
+                    // Continue issuing reads for the remaining words in the line
+                    if (i_mem_ready && (next_req_index < 3'd4)) begin
+                        mem_ren_reg  <= 1'b1;
+                        mem_addr_reg <= line_base_addr + {next_req_index, 2'b00};
                     end
                 end
 
@@ -257,10 +272,8 @@ module cache (
                         // Write is done.
                         // The state machine will transition to READ_LINE automatically.
                         // We must trigger the Read for Word 0 immediately here.
-                        if (i_mem_ready) begin
-                            mem_ren_reg <= 1'b1;
-                            mem_addr_reg <= {i_req_addr[31:O], {O{1'b0}}};
-                        end
+                        mem_ren_reg  <= 1'b1;
+                        mem_addr_reg <= line_base_addr;
                     end
                 end
             endcase

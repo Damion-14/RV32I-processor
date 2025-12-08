@@ -134,7 +134,7 @@ module id_stage #(
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
             if_id_next_pc <= if_id_next_pc;
-            if_id_valid   <= if_id_valid;
+            if_id_valid   <= 1'b0;
         end else begin
             // Align IF/ID PC with the instruction returned by synchronous imem
             if_id_inst    <= i_inst;
