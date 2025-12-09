@@ -123,7 +123,7 @@ module id_stage #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
-        end else if (i_flush_if_id | flush_if_id_d) begin
+        end else if (i_flush_if_id) begin
             // Flush pipeline: insert bubble (NOP)
             if_id_inst    <= 32'h00000013;  // NOP instruction
             if_id_pc      <= 32'b0;
@@ -304,17 +304,10 @@ module id_stage #(
 
     // With synchronous imem, carry a 1-cycle delayed flush to squash
     // the wrong-path instruction
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            flush_if_id_d <= 1'b0;
-        end else begin
-            flush_if_id_d <= i_flush_if_id;
-        end
-    end
 
     // Flush signal - asserted when control flow change taken in ID stage
     wire flush_if_id_internal;
-    assign flush_if_id_internal = !i_stall_if_id && (is_jalr_id | is_jal_id | branch_taken_id);
+    assign flush_if_id_internal = !i_stall_if_id && (is_jalr_id | is_jal_id);
     assign o_flush_if_id = flush_if_id_internal;
 
     //-------------------------------------------------------------------------
