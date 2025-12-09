@@ -64,8 +64,8 @@ module hazard_unit (
                              i_ex_mem_read &&             // EX stage is a load
                              i_ex_reg_write &&             // EX stage will write a register
                              (i_ex_rd != 5'b0) &&          // Not writing to x0
-                             ((i_ex_rd == i_id_rs1) ||     // ID stage reads rs1 from load
-                              (i_ex_rd == i_id_rs2));     // ID stage reads rs2 from load
+                             ((i_ex_rd == i_id_rs1)    // ID stage reads rs1 from load
+                              );     // ID stage reads rs2 from load
 
     //-------------------------------------------------------------------------
     // Branch/JALR vs MEM-Stage Load Hazard Detection
