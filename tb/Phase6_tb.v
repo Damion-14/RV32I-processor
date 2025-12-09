@@ -115,7 +115,7 @@ module hart_tb ();
 
         // Load the test program into memory at address 0.
         $display("Loading program.");
-        $readmemh("/filespace/m/maysacklandr/ECE552/RV32I-processor/tb/exhaustive_nobranch.mem", imem.mem);
+        $readmemh("/filespace/m/makeyes2/ECE552/phase5/Repo/RV32I-processor/tb/sort.mem", imem.mem);
 
         // Reset the dut.
         $display("Resetting hart.");

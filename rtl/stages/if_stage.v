@@ -106,11 +106,11 @@ module if_stage #(
             inst_q       <= 32'h00000013;      // Treat reset like a NOP bubble
             inst_valid_q <= 1'b0;
         end else begin
-            if (cache_resp_valid && !valid_blanking) begin
+            if (cache_resp_valid && !i_stall_pc) begin
                 fetch_pc     <= resp_pc;
                 inst_q       <= cache_rdata;
                 inst_valid_q <= 1'b1;
-            end else if (!i_stall_if_id && inst_valid_q) begin
+            end else begin
                 inst_valid_q <= 1'b0;          // ID consumed buffered instruction
             end
 
@@ -122,7 +122,7 @@ module if_stage #(
     end
 
     assign pc_plus_4 = pc + 32'd4;         // Calculate next sequential PC
-    assign pc_hold   = i_stall_pc || cache_waiting || inst_valid_q;
+    assign pc_hold   = i_stall_pc || cache_waiting || !inst_valid_q;
 
     // PC Update (Synchronous)
     // PC is updated every clock cycle unless stalled by hazard detection
@@ -143,7 +143,7 @@ module if_stage #(
     // INSTRUCTION CACHE REQUEST CONTROL
     //=========================================================================
 
-    assign cache_req_fire   = !inst_valid_q && !cache_waiting && !valid_blanking && !i_rst;
+    assign cache_req_fire   = !inst_valid_q && !cache_waiting && !i_rst;
     assign cache_req_addr   = cache_waiting ? cache_req_addr_q : pc;
     assign cache_resp_valid = !cache_busy && (cache_waiting || cache_req_fire);
     assign resp_pc          = cache_waiting ? cache_req_addr_q : pc;

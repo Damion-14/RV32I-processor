@@ -307,7 +307,7 @@ module id_stage #(
 
     // Flush signal - asserted when control flow change taken in ID stage
     wire flush_if_id_internal;
-    assign flush_if_id_internal = !i_stall_if_id && (is_jalr_id | is_jal_id);
+    assign flush_if_id_internal = (if_id_next_pc != o_branch_target) && (!i_stall_if_id && (is_jalr_id | is_jal_id) || branch_taken_id) && o_valid;
     assign o_flush_if_id = flush_if_id_internal;
 
     //-------------------------------------------------------------------------
