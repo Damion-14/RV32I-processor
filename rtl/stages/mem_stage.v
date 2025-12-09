@@ -25,8 +25,8 @@ module mem_stage (
     // INPUTS FROM EX STAGE (combinational)
     //=========================================================================
     input  wire [31:0] i_alu_result,       // ALU result
-    input  wire [31:0] i_rs2_data,         // Forwarded rs2 data (for stores)
-    input  wire [31:0] i_rs1_data,         // Forwarded rs1 data (for retire)
+    input  wire [31:0] i_rs2_data,         // Forwarded rs2 data (post-forwarding from EX)
+    input  wire [31:0] i_rs1_data,         // Forwarded rs1 data (post-forwarding from EX)
     input  wire [31:0] i_pc,               // Program counter
     input  wire [4:0]  i_rs1,              // rs1 address
     input  wire [4:0]  i_rs2,              // rs2 address
@@ -173,7 +173,7 @@ module mem_stage (
             ex_mem_imm           <= 32'b0;
         end else if (dcache_busy) begin
             // Hold EX/MEM pipeline registers while data cache services a miss
-        end else begin
+        end else if(i_valid)begin
             ex_mem_alu_result    <= i_alu_result;
             ex_mem_rs2_data      <= i_rs2_data;
             ex_mem_rs1_data      <= i_rs1_data;
@@ -198,6 +198,8 @@ module mem_stage (
             ex_mem_next_pc       <= i_next_pc;
             ex_mem_branch_target <= i_branch_target;
             ex_mem_imm           <= i_imm;
+        end else begin
+            ex_mem_valid         <= 1'b0; // Invalidate if no valid input
         end
     end
 
@@ -329,8 +331,10 @@ module mem_stage (
         wire mem_access_valid;
         wire dcache_req_fire;
         wire [31:0] dcache_req_addr;
+        wire mem_stage_waiting;          // Data cache currently servicing this instruction
 
         assign mem_access_valid = ex_mem_valid && (ex_mem_mem_read | ex_mem_mem_write);
+        assign mem_stage_waiting = mem_access_valid && dcache_busy;
         assign dcache_req_fire  = mem_access_valid && !dcache_waiting;
         assign dcache_req_addr  = dcache_waiting ? dcache_req_addr_q : cpu_dmem_addr_aligned;
 
@@ -373,7 +377,7 @@ module mem_stage (
         assign o_dmem_wen    = dcache_mem_wen;
         assign o_dmem_wdata  = dcache_mem_wdata;
         assign o_dmem_mask   = dcache_mem_wen ? dmem_mask : 4'b0000;
-        assign o_dcache_busy = dcache_busy;
+        assign o_dcache_busy = mem_stage_waiting;
 
     //=========================================================================
     // TRAP DETECTION
@@ -419,14 +423,14 @@ module mem_stage (
     assign o_funct3            = ex_mem_funct3;
     assign o_rs1               = ex_mem_rs1;
     assign o_rs2               = ex_mem_rs2;
-    assign o_rs1_data          = ex_mem_rs1_data;
-    assign o_rs2_data          = ex_mem_rs2_data;
+    assign o_rs1_data          = ex_mem_rs1_data;  // Forwarded operand from EX (registered)
+    assign o_rs2_data          = ex_mem_rs2_data;  // Forwarded operand from EX (registered)
     assign o_pc                = ex_mem_pc;
     assign o_inst              = ex_mem_inst;
     assign o_is_store          = ex_mem_is_store;
     assign o_unaligned_pc      = unaligned_pc_trap;
     assign o_unaligned_mem     = unaligned_mem_trap;
-    assign o_valid             = ex_mem_valid;
+    assign o_valid             = ex_mem_valid && !mem_stage_waiting;
     assign o_dmem_addr_out     = cpu_dmem_addr_aligned;
     assign o_byte_offset       = byte_offset;
     assign o_dmem_mask_out     = dmem_mask;

@@ -39,8 +39,8 @@ module wb_stage (
     input  wire [2:0]  i_funct3,           // Function code 3
     input  wire [4:0]  i_rs1,              // rs1 address
     input  wire [4:0]  i_rs2,              // rs2 address
-    input  wire [31:0] i_rs1_data,         // rs1 data
-    input  wire [31:0] i_rs2_data,         // rs2 data
+    input  wire [31:0] i_rs1_data,         // rs1 data (forwarded operand from EX)
+    input  wire [31:0] i_rs2_data,         // rs2 data (forwarded operand from EX)
     input  wire [31:0] i_pc,               // PC
     input  wire [31:0] i_inst,             // Instruction word
     input  wire        i_is_store,         // Is store instruction
@@ -253,8 +253,8 @@ module wb_stage (
                                   (mem_wb_funct3 == 3'b000) && (mem_wb_inst[31:20] == 12'h001));
     assign o_retire_rs1_raddr  = mem_wb_rs1;
     assign o_retire_rs2_raddr  = mem_wb_rs2;
-    assign o_retire_rs1_rdata  = i_rs1_data;
-    assign o_retire_rs2_rdata  = i_rs2_data;
+    assign o_retire_rs1_rdata  = mem_wb_rs1_data;  // Forwarded operand (matches ALU input)
+    assign o_retire_rs2_rdata  = mem_wb_rs2_data;  // Forwarded operand (matches ALU input)
     assign o_retire_rd_waddr   = (mem_wb_is_branch || mem_wb_is_store) ? 5'b00000 : mem_wb_rd;
     assign o_retire_rd_wdata   = rd_data;
     assign o_retire_pc         = mem_wb_pc;
