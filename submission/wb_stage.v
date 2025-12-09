@@ -39,8 +39,8 @@ module wb_stage (
     input  wire [2:0]  i_funct3,           // Function code 3
     input  wire [4:0]  i_rs1,              // rs1 address
     input  wire [4:0]  i_rs2,              // rs2 address
-    input  wire [31:0] i_rs1_data,         // rs1 data
-    input  wire [31:0] i_rs2_data,         // rs2 data
+    input  wire [31:0] i_rs1_data,         // rs1 data (forwarded operand from EX)
+    input  wire [31:0] i_rs2_data,         // rs2 data (forwarded operand from EX)
     input  wire [31:0] i_pc,               // PC
     input  wire [31:0] i_inst,             // Instruction word
     input  wire        i_is_store,         // Is store instruction
@@ -56,7 +56,6 @@ module wb_stage (
     //=========================================================================
     // DATA MEMORY INTERFACE (for current cycle read data)
     //=========================================================================
-    input  wire [31:0] i_dmem_rdata,       // Current cycle memory read data
 
     //=========================================================================
     // OUTPUTS TO ID STAGE (Register File Write)
@@ -199,55 +198,9 @@ module wb_stage (
     assign is_lui   = (mem_wb_opcode == 7'b0110111);  // Load Upper Immediate
     assign is_auipc = (mem_wb_opcode == 7'b0010111);  // Add Upper Immediate to PC
 
-    // Reprocess current memory data for retiring load instructions
-    wire [1:0] wb_byte_offset;
-    assign wb_byte_offset = mem_wb_byte_offset;
-
-    reg [31:0] wb_load_data_processed;
-    always @(*) begin
-        case (mem_wb_funct3)
-            // LB: Load Byte (sign-extended)
-            3'b000: begin
-                case (wb_byte_offset)
-                    2'b00: wb_load_data_processed = {{24{i_dmem_rdata[7]}},  i_dmem_rdata[7:0]};
-                    2'b01: wb_load_data_processed = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
-                    2'b10: wb_load_data_processed = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
-                    default: wb_load_data_processed = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
-                endcase
-            end
-
-            // LH: Load Half-word (sign-extended)
-            3'b001: begin
-                case (wb_byte_offset[1])
-                    1'b0: wb_load_data_processed = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
-                    default: wb_load_data_processed = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
-                endcase
-            end
-
-            // LW: Load Word (no extension needed)
-            3'b010: wb_load_data_processed = i_dmem_rdata;
-
-            // LBU: Load Byte Unsigned (zero-extended)
-            3'b100: begin
-                case (wb_byte_offset)
-                    2'b00: wb_load_data_processed = {24'b0, i_dmem_rdata[7:0]};
-                    2'b01: wb_load_data_processed = {24'b0, i_dmem_rdata[15:8]};
-                    2'b10: wb_load_data_processed = {24'b0, i_dmem_rdata[23:16]};
-                    default: wb_load_data_processed = {24'b0, i_dmem_rdata[31:24]};
-                endcase
-            end
-
-            // LHU: Load Half-word Unsigned (zero-extended)
-            3'b101: begin
-                case (wb_byte_offset[1])
-                    1'b0: wb_load_data_processed = {16'b0, i_dmem_rdata[15:0]};
-                    default: wb_load_data_processed = {16'b0, i_dmem_rdata[31:16]};
-                endcase
-            end
-
-            default: wb_load_data_processed = i_dmem_rdata;    // Default to word load
-        endcase
-    end
+    // Load data already processed in MEM stage (after store forwarding and sign extension)
+    wire [31:0] wb_load_data_processed;
+    assign wb_load_data_processed = mem_wb_mem_read_data;
 
     // Register Write Data Selection
     wire [31:0] rd_data;
@@ -255,7 +208,7 @@ module wb_stage (
                      (mem_wb_is_jal | mem_wb_is_jalr) ? mem_wb_pc_plus_4 :          // JAL/JALR: return address
                      is_lui ? mem_wb_imm :                                           // LUI: immediate value
                      is_auipc ? (mem_wb_pc + mem_wb_imm) :                          // AUIPC: PC + immediate
-                     mem_wb_alu_result;                                              // Default: ALU result
+                     i_alu_result;                                              // Default: ALU result
 
     //=========================================================================
     // TRAP DETECTION
@@ -300,8 +253,8 @@ module wb_stage (
                                   (mem_wb_funct3 == 3'b000) && (mem_wb_inst[31:20] == 12'h001));
     assign o_retire_rs1_raddr  = mem_wb_rs1;
     assign o_retire_rs2_raddr  = mem_wb_rs2;
-    assign o_retire_rs1_rdata  = mem_wb_rs1_data;
-    assign o_retire_rs2_rdata  = mem_wb_rs2_data;
+    assign o_retire_rs1_rdata  = mem_wb_rs1_data;  // Forwarded operand (matches ALU input)
+    assign o_retire_rs2_rdata  = mem_wb_rs2_data;  // Forwarded operand (matches ALU input)
     assign o_retire_rd_waddr   = (mem_wb_is_branch || mem_wb_is_store) ? 5'b00000 : mem_wb_rd;
     assign o_retire_rd_wdata   = rd_data;
     assign o_retire_pc         = mem_wb_pc;
@@ -311,7 +264,7 @@ module wb_stage (
     assign o_retire_dmem_wen   = mem_wb_mem_write;
     assign o_retire_dmem_mask  = mem_wb_dmem_mask;
     assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
-    assign o_retire_dmem_rdata = i_dmem_rdata;
+    assign o_retire_dmem_rdata = mem_wb_mem_read_data_raw;
 
 endmodule
 

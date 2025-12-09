@@ -31,13 +31,15 @@ module id_stage #(
     input  wire [31:0] i_inst,             // Instruction from IF stage
     input  wire [31:0] i_fetch_pc,         // PC from IF stage
     input  wire [31:0] i_pc_plus_4,        // PC+4 from IF stage
+    input  wire        i_if_inst_valid,    // IF stage instruction valid flag
 
     //=========================================================================
     // PIPELINE CONTROL SIGNALS
     //=========================================================================
     input  wire        i_stall_if_id,      // Stall IF/ID pipeline register
     input  wire        i_flush_if_id,      // Flush IF/ID pipeline register
-    input  wire        i_rst_stall,        // Reset stall signal
+    input  wire        i_rst_stall,        // Insert bubble into ID/EX (load-use)
+    input  wire        i_stall_id_ex,      // Hold ID/EX pipeline register
 
     //=========================================================================
     // REGISTER FILE WRITE-BACK (from WB stage)
@@ -121,7 +123,7 @@ module id_stage #(
             if_id_pc      <= 32'b0;
             if_id_next_pc <= 32'b0;
             if_id_valid   <= 1'b0;
-        end else if (i_flush_if_id | flush_if_id_d) begin
+        end else if (i_flush_if_id) begin
             // Flush pipeline: insert bubble (NOP)
             if_id_inst    <= 32'h00000013;  // NOP instruction
             if_id_pc      <= 32'b0;
@@ -132,13 +134,13 @@ module id_stage #(
             if_id_inst    <= if_id_inst;
             if_id_pc      <= if_id_pc;
             if_id_next_pc <= if_id_next_pc;
-            if_id_valid   <= if_id_valid;
+            if_id_valid   <= if_id_valid;  // Keep valid during stall
         end else begin
             // Align IF/ID PC with the instruction returned by synchronous imem
             if_id_inst    <= i_inst;
             if_id_pc      <= i_fetch_pc;
             if_id_next_pc <= i_pc_plus_4;
-            if_id_valid   <= 1'b1;
+            if_id_valid   <= i_if_inst_valid;
         end
     end
 
@@ -302,17 +304,10 @@ module id_stage #(
 
     // With synchronous imem, carry a 1-cycle delayed flush to squash
     // the wrong-path instruction
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            flush_if_id_d <= 1'b0;
-        end else begin
-            flush_if_id_d <= i_flush_if_id;
-        end
-    end
 
     // Flush signal - asserted when control flow change taken in ID stage
     wire flush_if_id_internal;
-    assign flush_if_id_internal = !i_stall_if_id && (is_jalr_id | is_jal_id | branch_taken_id);
+    assign flush_if_id_internal = !i_stall_if_id && (is_jalr_id | is_jal_id);
     assign o_flush_if_id = flush_if_id_internal;
 
     //-------------------------------------------------------------------------
@@ -364,6 +359,8 @@ module id_stage #(
             o_is_jalr       <= 1'b0;
             o_is_branch     <= 1'b0;
             o_branch_target <= 32'b0;
+        end else if (i_stall_id_ex) begin
+            // Hold current ID/EX state (e.g., structural/data cache stall)
         end else if (i_rst_stall) begin
             // Insert bubble: set all control signals to create a NOP
             o_pc            <= if_id_pc;
@@ -390,7 +387,7 @@ module id_stage #(
             o_is_jalr       <= 1'b0;
             o_is_branch     <= 1'b0;
             o_branch_target <= 32'b0;
-        end else begin
+        end else if (if_id_valid) begin
             o_pc            <= if_id_pc;
             o_rs1_data      <= rs1_data;
             o_rs2_data      <= rs2_data;
@@ -415,6 +412,8 @@ module id_stage #(
             o_is_jalr       <= is_jalr_id;
             o_is_branch     <= is_branch_id;
             o_branch_target <= is_jalr_id ? jalr_target_id : branch_target_id;
+        end else begin
+            o_valid         <= 1'b0;          // Mark as invalid if no valid input
         end
     end
 

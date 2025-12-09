@@ -26,6 +26,7 @@ module if_stage #(
     // CONTROL SIGNALS
     //=========================================================================
     input  wire        i_stall_pc,         // Stall PC update (from hazard unit)
+    input  wire        i_stall_if_id,      // Stall IF/ID register (from hazard unit)
     input  wire        i_pc_redirect,      // Override PC with branch/jump target
     input  wire [31:0] i_pc_redirect_target, // Branch/jump target from ID stage
 
@@ -86,20 +87,16 @@ module if_stage #(
     always @(posedge i_clk) begin
         if(i_rst) begin
             cache_waiting_1 <= 1'b0;
-        end else
-            cache_waiting_1 <= cache_waiting;
-    end
-
-    always @(negedge cache_waiting or posedge i_clk) begin
-        if (i_rst) begin
             valid_blanking <= 1'b0;
         end else begin
+            cache_waiting_1 <= cache_waiting;
+            // Set valid_blanking for one cycle when cache_waiting falls
             if (cache_waiting_1 && !cache_waiting) begin
                 valid_blanking <= 1'b1;
-        end else begin
+            end else begin
                 valid_blanking <= 1'b0;
+            end
         end
-    end
     end
 
 
@@ -113,7 +110,7 @@ module if_stage #(
                 fetch_pc     <= resp_pc;
                 inst_q       <= cache_rdata;
                 inst_valid_q <= 1'b1;
-            end else if (!i_stall_pc && inst_valid_q) begin
+            end else if (!i_stall_if_id && inst_valid_q) begin
                 inst_valid_q <= 1'b0;          // ID consumed buffered instruction
             end
 

@@ -117,7 +117,7 @@ module hart_tb ();
 
         // Load the test program into memory at address 0.
         $display("Loading program.");
-        $readmemh("C:\\Users\\milo\\ece552\\RV32I-processor\\tb\\01add.mem", imem);
+        $readmemh("tb/program.mem", imem);
 
         // Reset the dut.
         $display("Resetting hart.");

@@ -25,8 +25,8 @@ module mem_stage (
     // INPUTS FROM EX STAGE (combinational)
     //=========================================================================
     input  wire [31:0] i_alu_result,       // ALU result
-    input  wire [31:0] i_rs2_data,         // Forwarded rs2 data (for stores)
-    input  wire [31:0] i_rs1_data,         // Forwarded rs1 data (for retire)
+    input  wire [31:0] i_rs2_data,         // Forwarded rs2 data (post-forwarding from EX)
+    input  wire [31:0] i_rs1_data,         // Forwarded rs1 data (post-forwarding from EX)
     input  wire [31:0] i_pc,               // Program counter
     input  wire [4:0]  i_rs1,              // rs1 address
     input  wire [4:0]  i_rs2,              // rs2 address
@@ -58,6 +58,9 @@ module mem_stage (
     output wire [31:0] o_dmem_wdata,       // Data to write to memory
     output wire [ 3:0] o_dmem_mask,        // Byte mask for sub-word accesses
     input  wire [31:0] i_dmem_rdata,       // Data read from memory
+    input  wire        i_dmem_ready,       // Data memory ready
+    input  wire        i_dmem_valid,       // Data memory data valid
+    output wire        o_dcache_busy,      // Data cache is servicing a miss
 
     //=========================================================================
     // OUTPUTS FOR FORWARDING (registered EX/MEM values)
@@ -131,6 +134,16 @@ module mem_stage (
     reg  [31:0] ex_mem_branch_target;
     reg  [31:0] ex_mem_imm;
 
+    // Data cache interface
+    wire [31:0] dcache_mem_addr;
+    wire        dcache_mem_ren;
+    wire        dcache_mem_wen;
+    wire [31:0] dcache_mem_wdata;
+    wire [31:0] dcache_rdata;
+    wire        dcache_busy;
+    reg         dcache_waiting;
+    reg  [31:0] dcache_req_addr_q;
+
     // EX/MEM Pipeline Register
     always @(posedge i_clk) begin
         if (i_rst) begin
@@ -158,7 +171,9 @@ module mem_stage (
             ex_mem_next_pc       <= 32'b0;
             ex_mem_branch_target <= 32'b0;
             ex_mem_imm           <= 32'b0;
-        end else begin
+        end else if (dcache_busy) begin
+            // Hold EX/MEM pipeline registers while data cache services a miss
+        end else if(i_valid)begin
             ex_mem_alu_result    <= i_alu_result;
             ex_mem_rs2_data      <= i_rs2_data;
             ex_mem_rs1_data      <= i_rs1_data;
@@ -183,12 +198,41 @@ module mem_stage (
             ex_mem_next_pc       <= i_next_pc;
             ex_mem_branch_target <= i_branch_target;
             ex_mem_imm           <= i_imm;
+        end else begin
+            ex_mem_valid         <= 1'b0; // Invalidate if no valid input
         end
     end
 
+    //==========================================================================
+    // MEMORY ADDRESS CALCULATION AND ALIGNMENT
+    //==========================================================================
+    wire [31:0] dmem_addr_unaligned;       // Unaligned memory address from ALU
+    wire [1:0]  byte_offset;               // Byte offset within 4-byte word
+    wire [31:0] cpu_dmem_addr_aligned;
+
+    assign dmem_addr_unaligned = ex_mem_alu_result;           // Address from ALU (rs1 + imm)
+    assign byte_offset         = dmem_addr_unaligned[1:0];    // Extract byte offset
+    assign cpu_dmem_addr_aligned = {dmem_addr_unaligned[31:2], 2'b00};
+
     //=========================================================================
+    // STORE OPERATIONS (MEMORY WRITES)
+    //==========================================================================
+    // Generate byte mask based on access size and byte offset
+    wire [3:0] dmem_mask;
+    assign dmem_mask = (ex_mem_funct3[1:0] == 2'b00) ? (4'b0001 << byte_offset) :  // SB: single byte
+                       (ex_mem_funct3[1:0] == 2'b01) ? (4'b0011 << byte_offset) :  // SH: half-word
+                       4'b1111;                                                     // SW: full word
+
+    // Shift store data to correct byte lanes based on byte offset
+    wire [31:0] store_data_shifted;
+    assign store_data_shifted = (byte_offset == 2'b00) ? ex_mem_rs2_data :          // No shift
+                                (byte_offset == 2'b01) ? (ex_mem_rs2_data << 8) :   // Shift left 8 bits
+                                (byte_offset == 2'b10) ? (ex_mem_rs2_data << 16) :  // Shift left 16 bits
+                                (ex_mem_rs2_data << 24);                            // Shift left 24 bits
+
+    //==========================================================================
     // STORE-TO-LOAD FORWARDING (MEM-to-MEM)
-    //=========================================================================
+    //==========================================================================
     // Previous cycle's store information
     reg [31:0] prev_store_addr;
     reg [31:0] prev_store_data_raw;        // Original rs2 data before shifting
@@ -204,10 +248,10 @@ module mem_stage (
             prev_store_valid    <= 1'b0;
             prev_store_funct3   <= 3'b0;
         end else begin
-            prev_store_addr     <= o_dmem_addr;
-            prev_store_data_raw <= o_dmem_wdata;
-            prev_store_mask     <= o_dmem_mask;
-            prev_store_valid    <= o_dmem_wen;
+            prev_store_addr     <= cpu_dmem_addr_aligned;
+            prev_store_data_raw <= store_data_shifted;
+            prev_store_mask     <= dmem_mask;
+            prev_store_valid    <= ex_mem_mem_write && ex_mem_valid;
             prev_store_funct3   <= ex_mem_funct3;
         end
     end
@@ -216,54 +260,20 @@ module mem_stage (
     wire mem_to_mem_forward;
     assign mem_to_mem_forward = prev_store_valid &&              // Previous instruction was a store
                                 ex_mem_mem_read &&               // Current instruction is a load
-                                (prev_store_addr == o_dmem_addr); // Same aligned address
+                                (prev_store_addr == cpu_dmem_addr_aligned); // Same aligned address
 
     // Reconstruct the memory word with forwarded store data
     wire [31:0] dmem_rdata_or_forwarded;
     wire [31:0] forwarded_store_word;
 
     assign forwarded_store_word = {
-        prev_store_mask[3] ? prev_store_data_raw[31:24] : i_dmem_rdata[31:24],
-        prev_store_mask[2] ? prev_store_data_raw[23:16] : i_dmem_rdata[23:16],
-        prev_store_mask[1] ? prev_store_data_raw[15:8]  : i_dmem_rdata[15:8],
-        prev_store_mask[0] ? prev_store_data_raw[7:0]   : i_dmem_rdata[7:0]
+        prev_store_mask[3] ? prev_store_data_raw[31:24] : dcache_rdata[31:24],
+        prev_store_mask[2] ? prev_store_data_raw[23:16] : dcache_rdata[23:16],
+        prev_store_mask[1] ? prev_store_data_raw[15:8]  : dcache_rdata[15:8],
+        prev_store_mask[0] ? prev_store_data_raw[7:0]   : dcache_rdata[7:0]
     };
 
-    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? forwarded_store_word : i_dmem_rdata;
-
-    //=========================================================================
-    // MEMORY ADDRESS CALCULATION AND ALIGNMENT
-    //=========================================================================
-    wire [31:0] dmem_addr_unaligned;       // Unaligned memory address from ALU
-    wire [1:0]  byte_offset;               // Byte offset within 4-byte word
-
-    assign dmem_addr_unaligned = ex_mem_alu_result;           // Address from ALU (rs1 + imm)
-    assign byte_offset = dmem_addr_unaligned[1:0];            // Extract byte offset
-    assign o_dmem_addr = {dmem_addr_unaligned[31:2], 2'b00};  // Align to 4-byte boundary
-
-    // Memory Control Signals
-    assign o_dmem_ren = ex_mem_mem_read;   // Read enable from control unit
-    assign o_dmem_wen = ex_mem_mem_write;  // Write enable from control unit
-
-    //=========================================================================
-    // STORE OPERATIONS (MEMORY WRITES)
-    //=========================================================================
-    // Generate byte mask based on access size and byte offset
-    wire [3:0] dmem_mask;
-    assign dmem_mask = (ex_mem_funct3[1:0] == 2'b00) ? (4'b0001 << byte_offset) :  // SB: single byte
-                       (ex_mem_funct3[1:0] == 2'b01) ? (4'b0011 << byte_offset) :  // SH: half-word
-                       4'b1111;                                                     // SW: full word
-
-    assign o_dmem_mask = dmem_mask;
-
-    // Shift store data to correct byte lanes based on byte offset
-    wire [31:0] store_data_shifted;
-    assign store_data_shifted = (byte_offset == 2'b00) ? ex_mem_rs2_data :          // No shift
-                                (byte_offset == 2'b01) ? (ex_mem_rs2_data << 8) :   // Shift left 8 bits
-                                (byte_offset == 2'b10) ? (ex_mem_rs2_data << 16) :  // Shift left 16 bits
-                                (ex_mem_rs2_data << 24);                            // Shift left 24 bits
-
-    assign o_dmem_wdata = store_data_shifted;
+    assign dmem_rdata_or_forwarded = mem_to_mem_forward ? forwarded_store_word : dcache_rdata;
 
     //=========================================================================
     // LOAD OPERATIONS (MEMORY READS)
@@ -315,6 +325,60 @@ module mem_stage (
         endcase
     end
 
+        //=========================================================================
+        // DATA CACHE AND EXTERNAL MEMORY INTERFACE
+        //=========================================================================
+        wire mem_access_valid;
+        wire dcache_req_fire;
+        wire [31:0] dcache_req_addr;
+        wire mem_stage_waiting;          // Data cache currently servicing this instruction
+
+        assign mem_access_valid = ex_mem_valid && (ex_mem_mem_read | ex_mem_mem_write);
+        assign mem_stage_waiting = mem_access_valid && dcache_busy;
+        assign dcache_req_fire  = mem_access_valid && !dcache_waiting;
+        assign dcache_req_addr  = dcache_waiting ? dcache_req_addr_q : cpu_dmem_addr_aligned;
+
+        always @(posedge i_clk) begin
+            if (i_rst) begin
+                dcache_waiting <= 1'b0;
+                dcache_req_addr_q <= 32'b0;
+            end else if (!dcache_busy) begin
+                dcache_waiting <= 1'b0;
+            end else if (dcache_req_fire) begin
+                dcache_waiting <= 1'b1;
+            end
+
+            if (dcache_req_fire) begin
+                dcache_req_addr_q <= cpu_dmem_addr_aligned;
+            end
+        end
+
+        cache dcache (
+            .i_clk       (i_clk),
+            .i_rst       (i_rst),
+            .i_mem_ready (i_dmem_ready),
+            .o_mem_addr  (dcache_mem_addr),
+            .o_mem_ren   (dcache_mem_ren),
+            .o_mem_wen   (dcache_mem_wen),
+            .o_mem_wdata (dcache_mem_wdata),
+            .i_mem_rdata (i_dmem_rdata),
+            .i_mem_valid (i_dmem_valid),
+            .o_busy      (dcache_busy),
+            .i_req_addr  (dcache_req_addr),
+            .i_req_ren   (dcache_req_fire && ex_mem_mem_read),
+            .i_req_wen   (dcache_req_fire && ex_mem_mem_write),
+            .i_req_mask  (dmem_mask),
+            .i_req_wdata (store_data_shifted),
+            .o_res_rdata (dcache_rdata)
+        );
+
+        assign o_dmem_addr   = dcache_mem_addr;
+        assign o_dmem_ren    = dcache_mem_ren;
+        assign o_dmem_wen    = dcache_mem_wen;
+        assign o_dmem_wdata  = dcache_mem_wdata;
+        assign o_dmem_mask   = dcache_mem_wen ? dmem_mask : 4'b0000;
+        assign o_dcache_busy = mem_stage_waiting;
+
     //=========================================================================
     // TRAP DETECTION
     //=========================================================================
@@ -359,18 +423,18 @@ module mem_stage (
     assign o_funct3            = ex_mem_funct3;
     assign o_rs1               = ex_mem_rs1;
     assign o_rs2               = ex_mem_rs2;
-    assign o_rs1_data          = ex_mem_rs1_data;
-    assign o_rs2_data          = ex_mem_rs2_data;
+    assign o_rs1_data          = ex_mem_rs1_data;  // Forwarded operand from EX (registered)
+    assign o_rs2_data          = ex_mem_rs2_data;  // Forwarded operand from EX (registered)
     assign o_pc                = ex_mem_pc;
     assign o_inst              = ex_mem_inst;
     assign o_is_store          = ex_mem_is_store;
     assign o_unaligned_pc      = unaligned_pc_trap;
     assign o_unaligned_mem     = unaligned_mem_trap;
-    assign o_valid             = ex_mem_valid;
-    assign o_dmem_addr_out     = o_dmem_addr;
+    assign o_valid             = ex_mem_valid && !mem_stage_waiting;
+    assign o_dmem_addr_out     = cpu_dmem_addr_aligned;
     assign o_byte_offset       = byte_offset;
-    assign o_dmem_mask_out     = o_dmem_mask;
-    assign o_dmem_wdata_out    = o_dmem_wdata;
+    assign o_dmem_mask_out     = dmem_mask;
+    assign o_dmem_wdata_out    = store_data_shifted;
     assign o_next_pc           = ex_mem_next_pc;
 
 endmodule

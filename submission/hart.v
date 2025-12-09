@@ -36,7 +36,10 @@ module hart #(
     // INSTRUCTION MEMORY INTERFACE
     //=========================================================================
     output wire [31:0] o_imem_raddr,       // Instruction memory read address
+    output wire        o_imem_ren,         // Instruction memory read enable
     input  wire [31:0] i_imem_rdata,       // Instruction word from memory
+    input  wire        i_imem_ready,       // Instruction memory ready (legacy)
+    input  wire        i_imem_valid,       // Instruction memory data valid (legacy)
 
     //=========================================================================
     // DATA MEMORY INTERFACE
@@ -47,6 +50,8 @@ module hart #(
     output wire [31:0] o_dmem_wdata,       // Data to write to memory
     output wire [ 3:0] o_dmem_mask,        // Byte mask for sub-word accesses
     input  wire [31:0] i_dmem_rdata,       // Data read from memory
+    input  wire        i_dmem_ready,       // Data memory ready (legacy)
+    input  wire        i_dmem_valid,       // Data memory data valid (legacy)
 
     //=========================================================================
     // INSTRUCTION RETIRE INTERFACE (Verification/Debug)
@@ -88,6 +93,9 @@ module hart #(
     wire        if_id_is_branch;
     wire        if_id_is_jalr;
     wire        if_id_valid;
+    wire        if_inst_valid;
+    wire        if_cache_busy;
+    wire        mem_cache_busy;
 
     // ID -> EX signals (ID/EX pipeline register outputs)
     wire [31:0] id_ex_pc;
@@ -189,17 +197,12 @@ module hart #(
     wire        next_pc_sel;
     wire [31:0] next_pc;
     wire        flush_if_id;
+    wire        hazard_stall_pc, hazard_stall_if_id, hazard_bubble_id_ex;
     wire        stall_pc, stall_if_id, bubble_id_ex;
+    wire        stall_id_ex;
     wire [1:0]  forward_a, forward_b;
 
-    // Reset stall signal
-    reg         rst_store;
-    wire        rst_stall;
-
-    always @(posedge i_clk) begin
-        rst_store <= i_rst;
-    end
-    assign rst_stall = rst_store;
+    
 
     //=========================================================================
     // HAZARD DETECTION UNIT
@@ -217,10 +220,10 @@ module hart #(
         .i_mem_rd(ex_mem_rd_reg),                // Use registered EX/MEM value
         .i_mem_reg_write(ex_mem_reg_write_reg),  // Use registered EX/MEM value
         .i_mem_mem_read(ex_mem_mem_to_reg_reg),  // Use registered EX/MEM value
-        .i_rst_stall(rst_stall),
-        .o_stall_pc(stall_pc),
-        .o_stall_if_id(stall_if_id),
-        .o_bubble_id_ex(bubble_id_ex)
+        .i_icache_busy(if_cache_busy),
+        .o_stall_pc(hazard_stall_pc),
+        .o_stall_if_id(hazard_stall_if_id),
+        .o_bubble_id_ex(hazard_bubble_id_ex)
     );
 
     //=========================================================================
@@ -231,13 +234,21 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd_reg),                                    // Use registered value
-        .i_mem_reg_write(ex_mem_reg_write_reg && ex_mem_valid_reg), // Use registered value
+        .i_mem_reg_write(ex_mem_reg_write_reg && ex_valid), // Use registered value
         .i_wb_rd(wb_rd),
         .i_wb_reg_write(wb_reg_write && mem_wb_valid),
         .o_forward_a(forward_a),
         .o_forward_b(forward_b)
     );
 
+    wire frontend_stall;
+    assign frontend_stall = if_cache_busy | mem_cache_busy;
+    assign stall_pc       = hazard_stall_pc | frontend_stall;
+    assign stall_if_id    = hazard_stall_if_id | frontend_stall;
+    assign bubble_id_ex   = hazard_bubble_id_ex | frontend_stall;
+    assign stall_id_ex    = mem_cache_busy;
+
+   
     //=========================================================================
     // PIPELINE STAGE INSTANTIATIONS
     //=========================================================================
@@ -251,13 +262,19 @@ module hart #(
         .i_clk(i_clk),
         .i_rst(i_rst),
         .i_stall_pc(stall_pc),
+        .i_stall_if_id(stall_if_id),
         .i_pc_redirect(next_pc_sel),
         .i_pc_redirect_target(next_pc),
+        .o_inst_valid(if_inst_valid),
         .o_imem_raddr(o_imem_raddr),
+        .o_imem_ren(o_imem_ren),
         .i_imem_rdata(i_imem_rdata),
+        .i_imem_ready(i_imem_ready),
+        .i_imem_valid(i_imem_valid),
         .o_inst(if_id_inst),
         .o_fetch_pc(if_id_fetch_pc),
-        .o_pc_plus_4(if_id_pc_plus_4)
+        .o_pc_plus_4(if_id_pc_plus_4),
+        .o_cache_busy(if_cache_busy)
     );
 
     //-------------------------------------------------------------------------
@@ -271,9 +288,11 @@ module hart #(
         .i_inst(if_id_inst),
         .i_fetch_pc(if_id_fetch_pc),
         .i_pc_plus_4(if_id_pc_plus_4),
+        .i_if_inst_valid(if_inst_valid),
         .i_stall_if_id(stall_if_id),
         .i_flush_if_id(flush_if_id),
         .i_rst_stall(bubble_id_ex),          // Use bubble signal for ID/EX stall
+        .i_stall_id_ex(stall_id_ex),
         .i_wb_rd(wb_rd),
         .i_wb_rd_data(wb_rd_data),
         .i_wb_reg_write(wb_reg_write),
@@ -426,6 +445,9 @@ module hart #(
         .o_dmem_wdata(o_dmem_wdata),
         .o_dmem_mask(o_dmem_mask),
         .i_dmem_rdata(i_dmem_rdata),
+        .i_dmem_ready(i_dmem_ready),
+        .i_dmem_valid(i_dmem_valid),
+        .o_dcache_busy(mem_cache_busy),
         // Forwarding outputs (registered EX/MEM values)
         .o_ex_mem_alu_result_reg(ex_mem_alu_result_reg),
         .o_ex_mem_rd_reg(ex_mem_rd_reg),
@@ -502,7 +524,6 @@ module hart #(
         .i_dmem_mask(mem_wb_dmem_mask),
         .i_dmem_wdata(mem_wb_dmem_wdata),
         .i_next_pc(mem_wb_next_pc),
-        .i_dmem_rdata(i_dmem_rdata),
         // Outputs to ID stage (register file write)
         .o_wb_rd(wb_rd),
         .o_wb_rd_data(wb_rd_data),

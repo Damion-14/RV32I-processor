@@ -22,6 +22,7 @@ module hazard_unit (
     input  wire [4:0]  i_id_rs1,
     input  wire [4:0]  i_id_rs2,
     input  wire        i_id_valid,
+    input  wire        i_icache_busy,
 
     // Branch/jump signals from ID stage
     input  wire        i_id_is_branch,     // Is ID stage instruction a branch?
@@ -36,7 +37,6 @@ module hazard_unit (
     input  wire [4:0]  i_mem_rd,
     input  wire        i_mem_reg_write,
     input  wire        i_mem_mem_read,
-    input  wire        i_rst_stall,
 
     // Control outputs
     output wire        o_stall_pc,         // Stall program counter
@@ -60,12 +60,12 @@ module hazard_unit (
 
     wire load_use_hazard;
 
-    assign load_use_hazard = i_id_valid &&                // ID stage instruction valid
-                             i_ex_mem_read &&             // EX stage is a load
+    assign load_use_hazard = i_id_valid &&                 // ID stage instruction valid
+                             i_ex_mem_read &&              // EX stage is a load
                              i_ex_reg_write &&             // EX stage will write a register
                              (i_ex_rd != 5'b0) &&          // Not writing to x0
                              ((i_ex_rd == i_id_rs1) ||     // ID stage reads rs1 from load
-                              (i_ex_rd == i_id_rs2));     // ID stage reads rs2 from load
+                             (i_ex_rd == i_id_rs2));       // ID stage reads rs2 from load
 
     //-------------------------------------------------------------------------
     // Branch/JALR vs MEM-Stage Load Hazard Detection
@@ -102,8 +102,8 @@ module hazard_unit (
     // - Insert a bubble (NOP) into the ID/EX register
 
     assign o_stall_pc    = load_use_hazard | branch_load_hazard;
-    assign o_stall_if_id = load_use_hazard | branch_load_hazard | i_rst_stall;
-    assign o_bubble_id_ex = load_use_hazard | branch_load_hazard | i_rst_stall;
+    assign o_stall_if_id = load_use_hazard | branch_load_hazard;
+    assign o_bubble_id_ex = load_use_hazard | branch_load_hazard;
 
 endmodule
 

@@ -245,7 +245,7 @@ module hart #(
     assign frontend_stall = if_cache_busy | mem_cache_busy;
     assign stall_pc       = hazard_stall_pc | frontend_stall;
     assign stall_if_id    = hazard_stall_if_id | frontend_stall;
-    assign bubble_id_ex   = hazard_bubble_id_ex;
+    assign bubble_id_ex   = hazard_bubble_id_ex | frontend_stall;
     assign stall_id_ex    = mem_cache_busy;
 
    
@@ -262,6 +262,7 @@ module hart #(
         .i_clk(i_clk),
         .i_rst(i_rst),
         .i_stall_pc(stall_pc),
+        .i_stall_if_id(stall_if_id),
         .i_pc_redirect(next_pc_sel),
         .i_pc_redirect_target(next_pc),
         .o_inst_valid(if_inst_valid),
