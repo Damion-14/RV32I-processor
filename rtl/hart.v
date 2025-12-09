@@ -234,7 +234,7 @@ module hart #(
         .i_ex_rs1(id_ex_rs1),
         .i_ex_rs2(id_ex_rs2),
         .i_mem_rd(ex_mem_rd_reg),                                    // Use registered value
-        .i_mem_reg_write(ex_mem_reg_write_reg && ex_mem_valid_reg), // Use registered value
+        .i_mem_reg_write(ex_mem_reg_write_reg && ex_valid), // Use registered value
         .i_wb_rd(wb_rd),
         .i_wb_reg_write(wb_reg_write && mem_wb_valid),
         .o_forward_a(forward_a),

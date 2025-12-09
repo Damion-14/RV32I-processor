@@ -208,7 +208,7 @@ module wb_stage (
                      (mem_wb_is_jal | mem_wb_is_jalr) ? mem_wb_pc_plus_4 :          // JAL/JALR: return address
                      is_lui ? mem_wb_imm :                                           // LUI: immediate value
                      is_auipc ? (mem_wb_pc + mem_wb_imm) :                          // AUIPC: PC + immediate
-                     mem_wb_alu_result;                                              // Default: ALU result
+                     i_alu_result;                                              // Default: ALU result
 
     //=========================================================================
     // TRAP DETECTION
@@ -253,8 +253,8 @@ module wb_stage (
                                   (mem_wb_funct3 == 3'b000) && (mem_wb_inst[31:20] == 12'h001));
     assign o_retire_rs1_raddr  = mem_wb_rs1;
     assign o_retire_rs2_raddr  = mem_wb_rs2;
-    assign o_retire_rs1_rdata  = mem_wb_rs1_data;
-    assign o_retire_rs2_rdata  = mem_wb_rs2_data;
+    assign o_retire_rs1_rdata  = i_rs1_data;
+    assign o_retire_rs2_rdata  = i_rs2_data;
     assign o_retire_rd_waddr   = (mem_wb_is_branch || mem_wb_is_store) ? 5'b00000 : mem_wb_rd;
     assign o_retire_rd_wdata   = rd_data;
     assign o_retire_pc         = mem_wb_pc;
