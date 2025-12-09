@@ -109,7 +109,7 @@ module if_stage #(
             inst_q       <= 32'h00000013;      // Treat reset like a NOP bubble
             inst_valid_q <= 1'b0;
         end else begin
-            if (cache_resp_valid && !drop_resp && !valid_blanking) begin
+            if (cache_resp_valid && !valid_blanking) begin
                 fetch_pc     <= resp_pc;
                 inst_q       <= cache_rdata;
                 inst_valid_q <= 1'b1;
