@@ -173,7 +173,7 @@ module mem_stage (
             ex_mem_imm           <= 32'b0;
         end else if (dcache_busy) begin
             // Hold EX/MEM pipeline registers while data cache services a miss
-        end else if(i_valid)begin
+        end else begin
             ex_mem_alu_result    <= i_alu_result;
             ex_mem_rs2_data      <= i_rs2_data;
             ex_mem_rs1_data      <= i_rs1_data;
@@ -198,12 +198,6 @@ module mem_stage (
             ex_mem_next_pc       <= i_next_pc;
             ex_mem_branch_target <= i_branch_target;
             ex_mem_imm           <= i_imm;
-        end else begin
-            ex_mem_mem_read      <= i_mem_read;
-            ex_mem_mem_write     <= i_mem_write;
-            ex_mem_mem_to_reg    <= i_mem_to_reg;
-            ex_mem_reg_write     <= i_reg_write;
-            ex_mem_valid         <= 1'b0; // Invalidate if no valid input
         end
     end
 

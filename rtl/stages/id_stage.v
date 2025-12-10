@@ -387,7 +387,7 @@ module id_stage #(
             o_is_jalr       <= 1'b0;
             o_is_branch     <= 1'b0;
             o_branch_target <= 32'b0;
-        end else if (if_id_valid) begin
+        end else begin
             o_pc            <= if_id_pc;
             o_rs1_data      <= rs1_data;
             o_rs2_data      <= rs2_data;
@@ -412,8 +412,6 @@ module id_stage #(
             o_is_jalr       <= is_jalr_id;
             o_is_branch     <= is_branch_id;
             o_branch_target <= is_jalr_id ? jalr_target_id : branch_target_id;
-        end else begin
-            o_valid         <= 1'b0;          // Mark as invalid if no valid input
         end
     end
 

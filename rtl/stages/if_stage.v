@@ -81,24 +81,6 @@ module if_stage #(
     // signals steady while `o_busy` is asserted).
     reg [31:0] fetch_pc;
     reg [31:0] inst_q;
-    reg valid_blanking;
-    reg cache_waiting_1;
-
-    always @(posedge i_clk) begin
-        if(i_rst) begin
-            cache_waiting_1 <= 1'b0;
-            valid_blanking <= 1'b0;
-        end else begin
-            cache_waiting_1 <= cache_waiting;
-            // Set valid_blanking for one cycle when cache_waiting falls
-            if (cache_waiting_1 && !cache_waiting) begin
-                valid_blanking <= 1'b1;
-            end else begin
-                valid_blanking <= 1'b0;
-            end
-        end
-    end
-
 
     always @(posedge i_clk) begin
         if (i_rst) begin
